@@ -1,0 +1,423 @@
+@server = http://localhost:4004
+@auth = Authorization: Basic alice:
+
+
+### Users
+# @name Users_GET
+GET {{server}}/odata/v4/expense-tracker/Users
+{{auth}}
+
+
+### Users
+# @name Users_POST
+POST {{server}}/odata/v4/expense-tracker/Users
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537",
+  "name": "name-16353936",
+  "email": "email-16353936",
+  "passwordHash": "passwordHash-16353936"
+}
+
+
+### Users
+# @name Users_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Users/16353936-7bcf-4cce-a8d4-02fba98ae537
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537",
+  "name": "name-16353936",
+  "email": "email-16353936",
+  "passwordHash": "passwordHash-16353936"
+}
+
+
+### Users
+# @name Users_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Users/16353936-7bcf-4cce-a8d4-02fba98ae537
+Content-Type: application/json
+{{auth}}
+
+
+### Expenses
+# @name Expenses_GET
+GET {{server}}/odata/v4/expense-tracker/Expenses
+{{auth}}
+
+
+### Expenses
+# @name Expenses_POST
+POST {{server}}/odata/v4/expense-tracker/Expenses
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "6044283c-8527-43b6-87d2-ba6fa0fa7ea3",
+  "description": "description-6044283",
+  "amount": 27438799.28,
+  "date": "2003-01-28",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  },
+  "paymentMethod": {
+    "ID": "27466786-6697-49dd-985a-b637b435df11"
+  }
+}
+
+
+### Expenses
+# @name Expenses_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Expenses/6044283c-8527-43b6-87d2-ba6fa0fa7ea3
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "6044283c-8527-43b6-87d2-ba6fa0fa7ea3",
+  "description": "description-6044283",
+  "amount": 27438799.28,
+  "date": "2003-01-28",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  },
+  "paymentMethod": {
+    "ID": "27466786-6697-49dd-985a-b637b435df11"
+  }
+}
+
+
+### Expenses
+# @name Expenses_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Expenses/6044283c-8527-43b6-87d2-ba6fa0fa7ea3
+Content-Type: application/json
+{{auth}}
+
+
+### Categories
+# @name Categories_GET
+GET {{server}}/odata/v4/expense-tracker/Categories
+{{auth}}
+
+
+### Categories
+# @name Categories_POST
+POST {{server}}/odata/v4/expense-tracker/Categories
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "42723678-3eca-4f1e-9e03-c58f8dfb4054",
+  "categoryName": "categoryName-4272367"
+}
+
+
+### Categories
+# @name Categories_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Categories/42723678-3eca-4f1e-9e03-c58f8dfb4054
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "42723678-3eca-4f1e-9e03-c58f8dfb4054",
+  "categoryName": "categoryName-4272367"
+}
+
+
+### Categories
+# @name Categories_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Categories/42723678-3eca-4f1e-9e03-c58f8dfb4054
+Content-Type: application/json
+{{auth}}
+
+
+### Budgets
+# @name Budgets_GET
+GET {{server}}/odata/v4/expense-tracker/Budgets
+{{auth}}
+
+
+### Budgets
+# @name Budgets_POST
+POST {{server}}/odata/v4/expense-tracker/Budgets
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "23179715-3de9-4292-ac6f-815d98bdf0a2",
+  "amount": 18040928.18,
+  "startDate": "2012-10-04",
+  "endDate": "2014-11-07",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  },
+  "category": {
+    "ID": "42723678-3eca-4f1e-9e03-c58f8dfb4054"
+  }
+}
+
+
+### Budgets
+# @name Budgets_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Budgets/23179715-3de9-4292-ac6f-815d98bdf0a2
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "23179715-3de9-4292-ac6f-815d98bdf0a2",
+  "amount": 18040928.18,
+  "startDate": "2012-10-04",
+  "endDate": "2014-11-07",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  },
+  "category": {
+    "ID": "42723678-3eca-4f1e-9e03-c58f8dfb4054"
+  }
+}
+
+
+### Budgets
+# @name Budgets_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Budgets/23179715-3de9-4292-ac6f-815d98bdf0a2
+Content-Type: application/json
+{{auth}}
+
+
+### Notifications
+# @name Notifications_GET
+GET {{server}}/odata/v4/expense-tracker/Notifications
+{{auth}}
+
+
+### Notifications
+# @name Notifications_POST
+POST {{server}}/odata/v4/expense-tracker/Notifications
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "22540803-7f2e-42bb-8b63-2859399b16d3",
+  "message": "message-22540803",
+  "timeStamp": "2005-01-01T00:00:00.000Z",
+  "status": "status-22540803",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### Notifications
+# @name Notifications_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Notifications/22540803-7f2e-42bb-8b63-2859399b16d3
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "22540803-7f2e-42bb-8b63-2859399b16d3",
+  "message": "message-22540803",
+  "timeStamp": "2005-01-01T00:00:00.000Z",
+  "status": "status-22540803",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### Notifications
+# @name Notifications_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Notifications/22540803-7f2e-42bb-8b63-2859399b16d3
+Content-Type: application/json
+{{auth}}
+
+
+### PaymentGateways
+# @name PaymentGateways_GET
+GET {{server}}/odata/v4/expense-tracker/PaymentGateways
+{{auth}}
+
+
+### PaymentGateways
+# @name PaymentGateways_POST
+POST {{server}}/odata/v4/expense-tracker/PaymentGateways
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "27466786-6697-49dd-985a-b637b435df11",
+  "methodName": "methodName-27466786",
+  "details": "details-27466786",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### PaymentGateways
+# @name PaymentGateways_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/PaymentGateways/27466786-6697-49dd-985a-b637b435df11
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "27466786-6697-49dd-985a-b637b435df11",
+  "methodName": "methodName-27466786",
+  "details": "details-27466786",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### PaymentGateways
+# @name PaymentGateways_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/PaymentGateways/27466786-6697-49dd-985a-b637b435df11
+Content-Type: application/json
+{{auth}}
+
+
+### RecurringExpenses
+# @name RecurringExpenses_GET
+GET {{server}}/odata/v4/expense-tracker/RecurringExpenses
+{{auth}}
+
+
+### RecurringExpenses
+# @name RecurringExpenses_POST
+POST {{server}}/odata/v4/expense-tracker/RecurringExpenses
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "30122489-5ada-43f1-9a7b-52088c51b5a0",
+  "description": "description-30122489",
+  "amount": 19208629.2,
+  "frequency": "frequency-30122489",
+  "startDate": "2003-10-14",
+  "endDate": "2007-03-02",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### RecurringExpenses
+# @name RecurringExpenses_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/RecurringExpenses/30122489-5ada-43f1-9a7b-52088c51b5a0
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "30122489-5ada-43f1-9a7b-52088c51b5a0",
+  "description": "description-30122489",
+  "amount": 19208629.2,
+  "frequency": "frequency-30122489",
+  "startDate": "2003-10-14",
+  "endDate": "2007-03-02",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### RecurringExpenses
+# @name RecurringExpenses_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/RecurringExpenses/30122489-5ada-43f1-9a7b-52088c51b5a0
+Content-Type: application/json
+{{auth}}
+
+
+### Goals
+# @name Goals_GET
+GET {{server}}/odata/v4/expense-tracker/Goals
+{{auth}}
+
+
+### Goals
+# @name Goals_POST
+POST {{server}}/odata/v4/expense-tracker/Goals
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "83634726-82a8-4e97-afe4-e51b37e4f1c2",
+  "goalName": "goalName-8363472",
+  "targetAmount": 31498738.27,
+  "currentAmount": 9589144.61,
+  "deadline": "2006-06-23",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### Goals
+# @name Goals_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/Goals/83634726-82a8-4e97-afe4-e51b37e4f1c2
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "83634726-82a8-4e97-afe4-e51b37e4f1c2",
+  "goalName": "goalName-8363472",
+  "targetAmount": 31498738.27,
+  "currentAmount": 9589144.61,
+  "deadline": "2006-06-23",
+  "user": {
+    "ID": "16353936-7bcf-4cce-a8d4-02fba98ae537"
+  }
+}
+
+
+### Goals
+# @name Goals_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/Goals/83634726-82a8-4e97-afe4-e51b37e4f1c2
+Content-Type: application/json
+{{auth}}
+
+
+### AI_Insights
+# @name AI_Insights_GET
+GET {{server}}/odata/v4/expense-tracker/AI_Insights
+{{auth}}
+
+
+### AI_Insights
+# @name AI_Insights_POST
+POST {{server}}/odata/v4/expense-tracker/AI_Insights
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "19791577-3d5c-4499-b272-3d03481958bc",
+  "insightType": "insightType-19791577",
+  "generatedDate": "2002-01-05T00:00:00.000Z",
+  "expense": {
+    "ID": "6044283c-8527-43b6-87d2-ba6fa0fa7ea3"
+  }
+}
+
+
+### AI_Insights
+# @name AI_Insights_PATCH
+PATCH {{server}}/odata/v4/expense-tracker/AI_Insights/19791577-3d5c-4499-b272-3d03481958bc
+Content-Type: application/json
+{{auth}}
+
+{
+  "ID": "19791577-3d5c-4499-b272-3d03481958bc",
+  "insightType": "insightType-19791577",
+  "generatedDate": "2002-01-05T00:00:00.000Z",
+  "expense": {
+    "ID": "6044283c-8527-43b6-87d2-ba6fa0fa7ea3"
+  }
+}
+
+
+### AI_Insights
+# @name AI_Insights_DELETE
+DELETE {{server}}/odata/v4/expense-tracker/AI_Insights/19791577-3d5c-4499-b272-3d03481958bc
+Content-Type: application/json
+{{auth}}
