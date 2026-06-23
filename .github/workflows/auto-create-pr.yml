@@ -29,14 +29,23 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF_NAME}"
 
+          # ── Exit early if this branch has no new commits ahead of main ────
+          git fetch origin main 2>/dev/null || true
+          AHEAD=$(git rev-list origin/main..HEAD --count 2>/dev/null || echo 0)
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "Branch '${BRANCH}' is up to date with main — no PR needed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
           # ── Title: feat/add-budget-report → "feat: add budget report" ─────
           PREFIX=$(echo "$BRANCH" | sed 's|/.*||')
           SLUG=$(echo "$BRANCH" | sed 's|[^/]*/||')
           READABLE=$(echo "$SLUG" | tr '-' ' ')
           TITLE="${PREFIX}: ${READABLE}"
 
-          # ── Commits not yet in develop ────────────────────────────────────
-          git fetch origin main 2>/dev/null || true
+          # ── Commits not yet in main ───────────────────────────────────────
           COMMITS=$(git log origin/main..HEAD --oneline --no-merges 2>/dev/null | head -20 || true)
           [ -z "$COMMITS" ] && COMMITS="No new commits compared to main."
 
@@ -92,6 +101,7 @@ jobs:
 
       - name: Resolve base branch
         id: base
+        if: steps.git-info.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -101,6 +111,7 @@ jobs:
 
       - name: Check if PR already exists
         id: check-pr
+        if: steps.git-info.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -121,7 +132,7 @@ jobs:
 
       - name: Create Pull Request
         id: create-pr
-        if: steps.check-pr.outputs.exists == 'false'
+        if: steps.git-info.outputs.skip != 'true' && steps.check-pr.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
