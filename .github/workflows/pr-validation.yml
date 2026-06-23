@@ -11,8 +11,8 @@ on:
 
 # ─── Permissions ────────────────────────────────────────────────────────────
 permissions:
-  contents: write        # Needed to trigger auto-merge
-  pull-requests: write   # Needed to post comments
+  contents: write # Needed to trigger auto-merge
+  pull-requests: write # Needed to post comments
 
 # ─── Jobs ───────────────────────────────────────────────────────────────────
 jobs:
@@ -222,27 +222,36 @@ jobs:
           retention-days: 7
 
   # ════════════════════════════════════════════════════════════════
-  # JOB 4 — Report: Post a combined review comment on the PR
+  # JOB 4 — Report: Post a combined summary comment on the PR
+  # FIX: outputs are passed via env vars (not template literals)
+  #      so backticks/quotes in report text never break JS syntax.
   # ════════════════════════════════════════════════════════════════
   report:
     name: 📋 Post PR Review Comment
     runs-on: ubuntu-latest
     needs: [lint, build, test]
-    if: always() # Always post so developer sees results even on failure
+    if: always()
 
     steps:
       - name: Post review comment
         uses: actions/github-script@v7
+        env:
+          LINT_OUTCOME:  ${{ needs.lint.outputs.outcome }}
+          BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
+          TEST_OUTCOME:  ${{ needs.test.outputs.outcome }}
+          LINT_REPORT:   ${{ needs.lint.outputs.report }}
+          BUILD_REPORT:  ${{ needs.build.outputs.report }}
+          TEST_REPORT:   ${{ needs.test.outputs.report }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const lintOutcome  = '${{ needs.lint.outputs.outcome }}';
-            const buildOutcome = '${{ needs.build.outputs.outcome }}';
-            const testOutcome  = '${{ needs.test.outputs.outcome }}';
-
-            const lintReport  = `${{ needs.lint.outputs.report }}`;
-            const buildReport = `${{ needs.build.outputs.report }}`;
-            const testReport  = `${{ needs.test.outputs.report }}`;
+            // Read from env vars — safe for any string content (backticks, quotes, etc.)
+            const lintOutcome  = process.env.LINT_OUTCOME  || '';
+            const buildOutcome = process.env.BUILD_OUTCOME || '';
+            const testOutcome  = process.env.TEST_OUTCOME  || '';
+            const lintReport   = process.env.LINT_REPORT   || '_Not available_';
+            const buildReport  = process.env.BUILD_REPORT  || '_Not available_';
+            const testReport   = process.env.TEST_REPORT   || '_Not available_';
 
             const allPassed =
               lintOutcome  === 'success' &&
@@ -250,111 +259,208 @@ jobs:
               (testOutcome === 'success' || testOutcome === '');
 
             const statusBadge = allPassed
-              ? '## ✅ All Checks Passed — PR is Ready to Merge'
-              : '## ❌ Some Checks Failed — Please Review Suggestions Below';
+              ? '## ✅ All Checks Passed — Awaiting Code Review'
+              : '## ❌ Some Checks Failed — Please Fix Before Merging';
 
             const suggestions = [];
             if (lintOutcome !== 'success') {
               suggestions.push(
                 '### 💡 ESLint Suggestions',
-                '- Fix all ❌ errors before merging (warnings are acceptable but should be addressed).',
+                '- Fix all errors before merging (warnings are acceptable but should be addressed).',
                 '- Run `npx eslint . --fix` locally to auto-fix many common issues.',
-                '- Check the [ESLint rule reference](https://eslint.org/docs/rules/) for guidance on specific rules.',
+                '- See the [ESLint rule reference](https://eslint.org/docs/rules/) for rule details.'
               );
             }
             if (buildOutcome !== 'success') {
               suggestions.push(
                 '### 💡 Build Suggestions',
                 '- Run `npx cds build --production` locally to reproduce the error.',
-                '- Check your `.cds` model files for syntax errors or unresolved associations.',
-                '- Ensure all `@sap/cds` imports and entity references are correctly defined.',
+                '- Check your `.cds` files for syntax errors or unresolved associations.',
+                '- Ensure all `@sap/cds` imports and entity references are correctly defined.'
               );
             }
             if (testOutcome !== 'success' && testOutcome !== '') {
               suggestions.push(
                 '### 💡 Test Suggestions',
                 '- Run `npm test` locally to reproduce failures.',
-                '- Check that all test fixtures and mock data in `db/data/` are consistent with schema changes.',
-                '- Add or update tests for any new service handlers introduced in this PR.',
+                '- Verify mock data in `db/data/` is consistent with schema changes.',
+                '- Add/update tests for any new service handlers in this PR.'
               );
             }
 
             const suggestionBlock = suggestions.length > 0
-              ? `\n---\n## 🛠️ Automated Suggestions\n${suggestions.join('\n')}`
+              ? '\n---\n## 🛠️ Automated Suggestions\n' + suggestions.join('\n')
               : '';
 
+            const lintCell  = lintOutcome  === 'success' ? '✅ Passed' : '❌ Failed';
+            const buildCell = buildOutcome === 'success' ? '✅ Passed' : '❌ Failed';
+            const testCell  = testOutcome  === 'success' ? '✅ Passed'
+                            : testOutcome  === ''        ? '⚠️ Skipped' : '❌ Failed';
+
             const body = [
-              statusBadge,
+              statusBadge, '',
+              '---',
+              '### 📊 Check Results', '',
+              '| Check | Status |',
+              '|-------|--------|',
+              '| 🔍 ESLint | ' + lintCell  + ' |',
+              '| 🏗️ Build  | ' + buildCell + ' |',
+              '| 🧪 Tests  | ' + testCell  + ' |',
               '',
               '---',
-              '### 📊 Check Results',
-              '',
-              `| Check | Status | Details |`,
-              `|-------|--------|---------|`,
-              `| 🔍 ESLint Lint   | ${lintOutcome  === 'success' ? '✅ Passed' : '❌ Failed'} | See below |`,
-              `| 🏗️ CDS Build     | ${buildOutcome === 'success' ? '✅ Passed' : '❌ Failed'} | See below |`,
-              `| 🧪 Tests         | ${testOutcome  === 'success' ? '✅ Passed' : (testOutcome === '' ? '⚠️ Skipped' : '❌ Failed')} | See below |`,
-              '',
+              '### 🔍 ESLint Report', lintReport,  '',
+              '### 🏗️ Build Report',  buildReport, '',
+              '### 🧪 Test Report',   testReport,
+              suggestionBlock, '',
               '---',
-              '### 🔍 ESLint Report',
-              lintReport || '_Not available_',
-              '',
-              '### 🏗️ Build Report',
-              buildReport || '_Not available_',
-              '',
-              '### 🧪 Test Report',
-              testReport || '_Not available_',
-              suggestionBlock,
-              '',
-              '---',
-              `> _Automated review by GitHub Actions pipeline • ${new Date().toUTCString()}_`,
+              '> _Automated review by GitHub Actions pipeline • ' + new Date().toUTCString() + '_',
             ].join('\n');
 
-            // Delete previous bot comment to avoid clutter
+            // Replace previous bot comment (keep PR clean)
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
-              repo: context.repo.repo,
+              repo:  context.repo.repo,
               issue_number: context.issue.number,
             });
-
-            const botComment = comments.find(c =>
+            const prev = comments.find(c =>
               c.user.login === 'github-actions[bot]' &&
               c.body.includes('Automated review by GitHub Actions pipeline')
             );
-            if (botComment) {
+            if (prev) {
               await github.rest.issues.deleteComment({
                 owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
+                repo:  context.repo.repo,
+                comment_id: prev.id,
               });
             }
-
             await github.rest.issues.createComment({
               owner: context.repo.owner,
-              repo: context.repo.repo,
+              repo:  context.repo.repo,
               issue_number: context.issue.number,
               body,
             });
 
   # ════════════════════════════════════════════════════════════════
-  # JOB 5 — Auto-Merge: Squash-merge PR when all checks pass
-  # No second account or REVIEWER_TOKEN needed.
-  # Requires two one-time GitHub repo settings (see README):
-  #   1. Settings → General → Allow auto-merge  ✅
-  #   2. Settings → Actions → General →
-  #      "Allow GitHub Actions to create and approve pull requests"  ✅
+  # JOB 5 — Code Review: Post a formal GitHub PR Review
+  #   • REQUEST_CHANGES  if any check failed  → blocks merge
+  #   • APPROVE          if all checks passed → unblocks auto-merge
+  # Requires: Settings → Actions → General →
+  #   "Allow GitHub Actions to create and approve pull requests" ✅
+  # ════════════════════════════════════════════════════════════════
+  code-review:
+    name: 🔎 Automated Code Review
+    runs-on: ubuntu-latest
+    needs: [lint, build, test, report]
+    if: always() && needs.report.result != 'skipped'
+    outputs:
+      decision: ${{ steps.review.outputs.decision }}
+
+    steps:
+      - name: Submit PR Review (Approve or Request Changes)
+        id: review
+        uses: actions/github-script@v7
+        env:
+          LINT_OUTCOME:  ${{ needs.lint.outputs.outcome }}
+          BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
+          TEST_OUTCOME:  ${{ needs.test.outputs.outcome }}
+          LINT_REPORT:   ${{ needs.lint.outputs.report }}
+          BUILD_REPORT:  ${{ needs.build.outputs.report }}
+          TEST_REPORT:   ${{ needs.test.outputs.report }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const lintOutcome  = process.env.LINT_OUTCOME  || '';
+            const buildOutcome = process.env.BUILD_OUTCOME || '';
+            const testOutcome  = process.env.TEST_OUTCOME  || '';
+
+            const allPassed =
+              lintOutcome  === 'success' &&
+              buildOutcome === 'success' &&
+              (testOutcome === 'success' || testOutcome === '');
+
+            const reviewEvent = allPassed ? 'APPROVE' : 'REQUEST_CHANGES';
+            core.setOutput('decision', reviewEvent);
+
+            const lintLine  = '| 🔍 ESLint | ' + (lintOutcome  === 'success' ? '✅ Pass' : '❌ Fail') + ' |';
+            const buildLine = '| 🏗️ Build  | ' + (buildOutcome === 'success' ? '✅ Pass' : '❌ Fail') + ' |';
+            const testLine  = '| 🧪 Tests  | ' + (testOutcome  === 'success' ? '✅ Pass'
+                             : testOutcome === '' ? '⚠️ Skip' : '❌ Fail') + ' |';
+
+            let reviewBody;
+            if (allPassed) {
+              reviewBody = [
+                '## ✅ Automated Code Review — APPROVED',
+                '',
+                'All automated checks passed. This PR is approved for auto-merge.',
+                '',
+                '| Check | Result |',
+                '|-------|--------|',
+                lintLine, buildLine, testLine,
+                '',
+                '> No manual review required. The PR will be squash-merged automatically.',
+              ].join('\n');
+            } else {
+              const issues = [];
+              if (lintOutcome !== 'success')
+                issues.push('- **ESLint**: Fix lint errors. Run `npx eslint . --fix` locally.');
+              if (buildOutcome !== 'success')
+                issues.push('- **Build**: Run `npx cds build --production` locally to identify the error.');
+              if (testOutcome !== 'success' && testOutcome !== '')
+                issues.push('- **Tests**: Run `npm test` locally. Update tests/fixtures if schema changed.');
+
+              reviewBody = [
+                '## ❌ Automated Code Review — CHANGES REQUESTED',
+                '',
+                'The following issues must be resolved before this PR can be merged:',
+                '',
+                issues.join('\n'),
+                '',
+                '| Check | Result |',
+                '|-------|--------|',
+                lintLine, buildLine, testLine,
+                '',
+                '> Push a fix to this branch and the pipeline will re-run automatically.',
+              ].join('\n');
+            }
+
+            // Dismiss any previous bot review first to avoid duplicates
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            for (const r of reviews) {
+              if (r.user.login === 'github-actions[bot]' && r.state !== 'DISMISSED') {
+                await github.rest.pulls.dismissReview({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  pull_number:  context.issue.number,
+                  review_id:    r.id,
+                  message:      'Superseded by updated pipeline run.',
+                }).catch(() => {}); // dismiss may fail if already merged — ignore
+              }
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              pull_number: context.issue.number,
+              event:  reviewEvent,
+              body:   reviewBody,
+            });
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 6 — Auto-Merge: Squash-merge ONLY after code review approves
+  # Requires: Settings → General → Allow auto-merge ✅
   # ════════════════════════════════════════════════════════════════
   auto-merge:
     name: 🔀 Auto-Merge PR
     runs-on: ubuntu-latest
-    needs: [lint, build, test]
-    if: |
-      needs.lint.outputs.outcome  == 'success' &&
-      needs.build.outputs.outcome == 'success' &&
-      (needs.test.outputs.outcome == 'success' || needs.test.outputs.outcome == '')
+    needs: [code-review]
+    if: needs.code-review.outputs.decision == 'APPROVE'
 
     steps:
-      - name: Enable auto-merge via GitHub CLI
+      - name: Squash-merge via GitHub CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -363,10 +469,10 @@ jobs:
           PR_TITLE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title -q .title)
 
           gh pr merge "$PR_NUMBER" \
-            --repo "$REPO" \
+            --repo  "$REPO" \
             --auto \
             --squash \
             --subject "${PR_TITLE}" \
-            --body "Auto-merged by pipeline after all checks passed (lint + build + tests)."
+            --body   "Auto-merged after automated code review approval (lint + build + tests passed)."
 
-          echo "Auto-merge enabled for PR #${PR_NUMBER}: ${PR_TITLE}"
+          echo "Auto-merge queued for PR #${PR_NUMBER}: ${PR_TITLE}"
