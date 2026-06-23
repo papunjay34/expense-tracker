@@ -23,7 +23,7 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Full history needed for commit analysis
+          fetch-depth: 0 # Full history needed for commit analysis
 
       - name: Check if PR already exists
         id: check-pr
