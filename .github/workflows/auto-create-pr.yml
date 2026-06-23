@@ -91,6 +91,20 @@ jobs:
           echo "title=${TITLE}"        >> "$GITHUB_OUTPUT"
           echo "body_file=${BODY_FILE}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve base branch
+        id: base
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use develop if it exists, otherwise fall back to main
+          if git ls-remote --exit-code origin refs/heads/develop > /dev/null 2>&1; then
+            echo "branch=develop" >> "$GITHUB_OUTPUT"
+            echo "Base branch resolved to: develop"
+          else
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+            echo "develop not found — falling back to: main"
+          fi
+
       - name: Check if PR already exists
         id: check-pr
         env:
@@ -98,7 +112,7 @@ jobs:
         run: |
           EXISTING=$(gh pr list \
             --head "${GITHUB_REF_NAME}" \
-            --base develop \
+            --base "${{ steps.base.outputs.branch }}" \
             --state open \
             --json number \
             --jq '.[0].number' 2>/dev/null || true)
@@ -118,7 +132,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_URL=$(gh pr create \
-            --base develop \
+            --base "${{ steps.base.outputs.branch }}" \
             --head "${GITHUB_REF_NAME}" \
             --title "${{ steps.git-info.outputs.title }}" \
             --body-file "${{ steps.git-info.outputs.body_file }}")
@@ -129,9 +143,10 @@ jobs:
       - name: Write job summary
         if: always()
         run: |
+          BASE="${{ steps.base.outputs.branch }}"
           if [ "${{ steps.check-pr.outputs.exists }}" = "true" ]; then
             echo "### ♻️ PR already exists — #${{ steps.check-pr.outputs.number }}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### ✅ PR created successfully"               >> "$GITHUB_STEP_SUMMARY"
+            echo "### ✅ PR created → ${BASE}"                  >> "$GITHUB_STEP_SUMMARY"
             echo "${{ steps.create-pr.outputs.url }}"           >> "$GITHUB_STEP_SUMMARY"
           fi
