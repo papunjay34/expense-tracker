@@ -53,7 +53,7 @@ jobs:
 
       - name: Run tests
         run: |
-          if node -e "require('./package.json').scripts.test" 2>/dev/null; then
+          if node -e "const s=require('./package.json').scripts; if(!s||!s.test){process.exit(1)}" 2>/dev/null; then
             npm test
           else
             echo "No test script configured — skipping."
