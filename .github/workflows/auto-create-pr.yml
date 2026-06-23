@@ -23,7 +23,74 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history needed for commit analysis
+          fetch-depth: 0
+
+      - name: Collect git info
+        id: git-info
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+
+          # ── Title: feat/add-budget-report → "feat: add budget report" ─────
+          PREFIX=$(echo "$BRANCH" | sed 's|/.*||')
+          SLUG=$(echo "$BRANCH" | sed 's|[^/]*/||')
+          READABLE=$(echo "$SLUG" | tr '-' ' ')
+          TITLE="${PREFIX}: ${READABLE}"
+
+          # ── Commits not yet in develop ────────────────────────────────────
+          git fetch origin develop 2>/dev/null || true
+          COMMITS=$(git log origin/develop..HEAD --oneline --no-merges 2>/dev/null | head -20 || true)
+          [ -z "$COMMITS" ] && COMMITS="No new commits compared to develop."
+
+          # ── Changed files by area ─────────────────────────────────────────
+          CHANGED=$(git diff --name-only origin/develop...HEAD 2>/dev/null | head -30 || true)
+          DB_FILES=$(echo "$CHANGED"    | grep "^db/"   | sed 's/^/- /' || true)
+          SRV_FILES=$(echo "$CHANGED"   | grep "^srv/"  | sed 's/^/- /' || true)
+          TEST_FILES=$(echo "$CHANGED"  | grep "^test/" | sed 's/^/- /' || true)
+          OTHER_FILES=$(echo "$CHANGED" | grep -vE "^(db|srv|test)/" | sed 's/^/- /' || true)
+
+          # ── Write PR body to a temp file (avoids all quoting issues) ──────
+          BODY_FILE="$(mktemp /tmp/pr-body.XXXXXX.md)"
+
+          cat > "$BODY_FILE" <<'STATIC'
+## Summary
+Automated PR — update the summary below before merging.
+
+## Type of Change
+- [ ] 🐛 Bug fix
+- [ ] ✨ New feature
+- [ ] ♻️ Refactor
+- [ ] 📖 Documentation
+- [ ] 🔧 Config / CI
+
+## Checklist
+- [ ] Ran `cds watch` locally and tested manually
+- [ ] `npx eslint .` passes locally
+- [ ] `npx cds build --production` passes locally
+- [ ] Linked to related issue (if any): Closes #___
+STATIC
+
+          # Append dynamic sections (no heredoc, no quoting issues)
+          echo ""                                       >> "$BODY_FILE"
+          echo "---"                                    >> "$BODY_FILE"
+          echo "## Commits in this PR"                  >> "$BODY_FILE"
+          echo '```'                                    >> "$BODY_FILE"
+          echo "$COMMITS"                               >> "$BODY_FILE"
+          echo '```'                                    >> "$BODY_FILE"
+
+          echo ""                                       >> "$BODY_FILE"
+          echo "## Changed Files"                       >> "$BODY_FILE"
+          [ -n "$DB_FILES"    ] && echo "**db/**"    >> "$BODY_FILE" && echo "$DB_FILES"    >> "$BODY_FILE"
+          [ -n "$SRV_FILES"   ] && echo "**srv/**"   >> "$BODY_FILE" && echo "$SRV_FILES"   >> "$BODY_FILE"
+          [ -n "$TEST_FILES"  ] && echo "**test/**"  >> "$BODY_FILE" && echo "$TEST_FILES"  >> "$BODY_FILE"
+          [ -n "$OTHER_FILES" ] && echo "**other/**" >> "$BODY_FILE" && echo "$OTHER_FILES" >> "$BODY_FILE"
+
+          echo ""                                       >> "$BODY_FILE"
+          echo "---"                                    >> "$BODY_FILE"
+          echo "> _Auto-created by GitHub Actions on push to \`${BRANCH}\`_" >> "$BODY_FILE"
+
+          # ── Export outputs ────────────────────────────────────────────────
+          echo "title=${TITLE}"        >> "$GITHUB_OUTPUT"
+          echo "body_file=${BODY_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Check if PR already exists
         id: check-pr
@@ -31,90 +98,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           EXISTING=$(gh pr list \
-            --head "${{ github.ref_name }}" \
+            --head "${GITHUB_REF_NAME}" \
             --base develop \
             --state open \
             --json number \
-            --jq '.[0].number')
+            --jq '.[0].number' 2>/dev/null || true)
 
           if [ -n "$EXISTING" ]; then
-            echo "exists=true"  >> $GITHUB_OUTPUT
-            echo "number=$EXISTING" >> $GITHUB_OUTPUT
-            echo "PR #$EXISTING already exists for branch ${{ github.ref_name }} — skipping creation."
+            echo "exists=true"          >> "$GITHUB_OUTPUT"
+            echo "number=${EXISTING}"   >> "$GITHUB_OUTPUT"
+            echo "PR #${EXISTING} already open — skipping creation."
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false"         >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Build PR title and body from commits
-        id: pr-content
-        if: steps.check-pr.outputs.exists == 'false'
-        run: |
-          BRANCH="${{ github.ref_name }}"
-
-          # ── Derive a readable title from the branch name ──────────────────
-          # feat/add-budget-report  →  feat: add budget report
-          # fix/null-pointer-crash  →  fix: null pointer crash
-          # chore/update-deps       →  chore: update deps
-          RAW="${BRANCH##*/}"          # strip prefix like feat/
-          PREFIX=$(echo "$BRANCH" | grep -oP '^[^/]+' || echo "chore")
-          READABLE=$(echo "$RAW" | tr '-' ' ')
-          TITLE="${PREFIX}: ${READABLE}"
-
-          # ── List commits on this branch not yet in develop ────────────────
-          COMMITS=$(git log origin/develop..HEAD --oneline --no-merges | head -20 || true)
-          if [ -z "$COMMITS" ]; then
-            COMMITS="_No new commits found._"
-          fi
-
-          # ── Detect changed files grouped by area ─────────────────────────
-          CHANGED=$(git diff --name-only origin/develop...HEAD 2>/dev/null | head -30 || true)
-          DB_CHANGES=$(echo "$CHANGED" | grep "^db/" || true)
-          SRV_CHANGES=$(echo "$CHANGED" | grep "^srv/" || true)
-          TEST_CHANGES=$(echo "$CHANGED" | grep "^test/" || true)
-          OTHER_CHANGES=$(echo "$CHANGED" | grep -vE "^(db|srv|test)/" || true)
-
-          # ── Build the PR body using the project's template ────────────────
-          BODY=$(cat <<PREOF
-          ## Summary
-          <!-- Briefly describe what this PR does and why -->
-          Automated PR created from branch \`${BRANCH}\`.
-
-          ## Commits in this PR
-          \`\`\`
-          ${COMMITS}
-          \`\`\`
-
-          ## Changed Files
-          $([ -n "$DB_CHANGES"    ] && echo "**Database (db/):**" && echo "$DB_CHANGES" | sed 's/^/- /' || true)
-          $([ -n "$SRV_CHANGES"   ] && echo "**Service (srv/):**" && echo "$SRV_CHANGES" | sed 's/^/- /' || true)
-          $([ -n "$TEST_CHANGES"  ] && echo "**Tests (test/):**" && echo "$TEST_CHANGES" | sed 's/^/- /' || true)
-          $([ -n "$OTHER_CHANGES" ] && echo "**Other:**" && echo "$OTHER_CHANGES" | sed 's/^/- /' || true)
-
-          ## Type of Change
-          - [ ] 🐛 Bug fix
-          - [ ] ✨ New feature
-          - [ ] ♻️ Refactor
-          - [ ] 📖 Documentation
-          - [ ] 🔧 Config / CI
-
-          ## Checklist
-          - [ ] Ran \`cds watch\` locally and tested manually
-          - [ ] \`npx eslint .\` passes locally
-          - [ ] \`npx cds build --production\` passes locally
-          - [ ] Linked to related issue (if any): Closes #___
-
-          ---
-          > _PR auto-created by GitHub Actions on push to \`${BRANCH}\`_
-          PREOF
-          )
-
-          # Write multiline outputs safely
-          {
-            echo "title=${TITLE}"
-            echo "body<<BODY_EOF"
-            echo "$BODY"
-            echo "BODY_EOF"
-          } >> $GITHUB_OUTPUT
 
       - name: Create Pull Request
         id: create-pr
@@ -124,21 +120,19 @@ jobs:
         run: |
           PR_URL=$(gh pr create \
             --base develop \
-            --head "${{ github.ref_name }}" \
-            --title "${{ steps.pr-content.outputs.title }}" \
-            --body "${{ steps.pr-content.outputs.body }}" \
-            --label "auto-created")
+            --head "${GITHUB_REF_NAME}" \
+            --title "${{ steps.git-info.outputs.title }}" \
+            --body-file "${{ steps.git-info.outputs.body_file }}")
 
-          echo "url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "✅ PR created: $PR_URL"
+          echo "url=${PR_URL}" >> "$GITHUB_OUTPUT"
+          echo "PR created: ${PR_URL}"
 
-      - name: Print summary
+      - name: Write job summary
         if: always()
         run: |
           if [ "${{ steps.check-pr.outputs.exists }}" = "true" ]; then
-            echo "### ♻️ PR Already Exists"           >> $GITHUB_STEP_SUMMARY
-            echo "PR #${{ steps.check-pr.outputs.number }} is already open for branch \`${{ github.ref_name }}\`." >> $GITHUB_STEP_SUMMARY
+            echo "### ♻️ PR already exists — #${{ steps.check-pr.outputs.number }}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### ✅ PR Created"                  >> $GITHUB_STEP_SUMMARY
-            echo "${{ steps.create-pr.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ PR created successfully"               >> "$GITHUB_STEP_SUMMARY"
+            echo "${{ steps.create-pr.outputs.url }}"           >> "$GITHUB_STEP_SUMMARY"
           fi
