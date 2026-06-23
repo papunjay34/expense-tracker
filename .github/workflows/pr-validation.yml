@@ -11,8 +11,8 @@ on:
 
 # ─── Permissions ────────────────────────────────────────────────────────────
 permissions:
-  contents: read
-  pull-requests: write # Needed to post comments and approve the PR
+  contents: write        # Needed to trigger auto-merge
+  pull-requests: write   # Needed to post comments
 
 # ─── Jobs ───────────────────────────────────────────────────────────────────
 jobs:
@@ -337,13 +337,15 @@ jobs:
             });
 
   # ════════════════════════════════════════════════════════════════
-  # JOB 5 — Auto-Approve: Approve PR when all checks pass
-  # Note: Requires 'REVIEWER_TOKEN' secret (PAT of a reviewer account)
-  #       The GITHUB_TOKEN cannot approve a PR it is part of; a
-  #       separate bot/reviewer PAT must be stored as a repo secret.
+  # JOB 5 — Auto-Merge: Squash-merge PR when all checks pass
+  # No second account or REVIEWER_TOKEN needed.
+  # Requires two one-time GitHub repo settings (see README):
+  #   1. Settings → General → Allow auto-merge  ✅
+  #   2. Settings → Actions → General →
+  #      "Allow GitHub Actions to create and approve pull requests"  ✅
   # ════════════════════════════════════════════════════════════════
-  auto-approve:
-    name: ✅ Auto-Approve PR
+  auto-merge:
+    name: 🔀 Auto-Merge PR
     runs-on: ubuntu-latest
     needs: [lint, build, test]
     if: |
@@ -352,40 +354,19 @@ jobs:
       (needs.test.outputs.outcome == 'success' || needs.test.outputs.outcome == '')
 
     steps:
-      - name: Approve the Pull Request
-        uses: actions/github-script@v7
-        with:
-          # Use a separate reviewer PAT so the approval is not self-approval.
-          # Add a PAT (with repo + pull-requests scope) as secret REVIEWER_TOKEN.
-          github-token: ${{ secrets.REVIEWER_TOKEN }}
-          script: |
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              event: 'APPROVE',
-              body: [
-                '✅ **Automated approval — all pipeline checks passed.**',
-                '',
-                '| Check | Status |',
-                '|-------|--------|',
-                '| 🔍 ESLint  | ✅ Passed |',
-                '| 🏗️ Build   | ✅ Passed |',
-                '| 🧪 Tests   | ✅ Passed |',
-                '',
-                'This PR is approved for merging into `develop`.',
-              ].join('\n'),
-            });
-
-      - name: Enable auto-merge
+      - name: Enable auto-merge via GitHub CLI
         env:
-          GH_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title -q .title)
+
           gh pr merge "$PR_NUMBER" \
             --repo "$REPO" \
             --auto \
             --squash \
-            --subject "$(gh pr view $PR_NUMBER --repo $REPO --json title -q .title)" \
-            --body "Auto-merged after passing all CI checks."
+            --subject "${PR_TITLE}" \
+            --body "Auto-merged by pipeline after all checks passed (lint + build + tests)."
+
+          echo "Auto-merge enabled for PR #${PR_NUMBER}: ${PR_TITLE}"
