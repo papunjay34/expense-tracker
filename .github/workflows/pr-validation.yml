@@ -41,7 +41,7 @@ jobs:
       - name: Run ESLint
         id: lint-run
         run: |
-          npx eslint . \
+          ./node_modules/.bin/eslint . \
             --format json \
             --output-file eslint-results.json \
             --ignore-pattern "gen/**" \

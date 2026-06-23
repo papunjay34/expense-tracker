@@ -24,7 +24,7 @@ jobs:
       build_ok: ${{ steps.build.outcome == 'success' }}
 
     steps:
-      - name: Checkout develop
+      - name: Checkout main
         uses: actions/checkout@v4
 
       - name: Setup Node.js 20
@@ -38,7 +38,7 @@ jobs:
 
       - name: Run ESLint
         run: |
-          npx eslint . \
+          ./node_modules/.bin/eslint . \
             --ignore-pattern "gen/**" \
             --ignore-pattern "node_modules/**"
 
@@ -64,7 +64,7 @@ jobs:
     if: always()
 
     steps:
-      - name: Checkout develop
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           fetch-depth: 2 # Need parent commit for diff stats
