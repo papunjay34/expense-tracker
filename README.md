@@ -1,6 +1,6 @@
-# Getting Started
+# Expense Tracker
 
-Welcome to your new project.
+A SAP CAP-based expense tracking application with automated CI/CD pipeline.
 
 It contains these folders and files, following our recommended project layout:
 
