@@ -48,28 +48,27 @@ jobs:
           TEST_FILES=$(echo "$CHANGED"  | grep "^test/" | sed 's/^/- /' || true)
           OTHER_FILES=$(echo "$CHANGED" | grep -vE "^(db|srv|test)/" | sed 's/^/- /' || true)
 
-          # ── Write PR body to a temp file (avoids all quoting issues) ──────
+          # ── Write PR body to a temp file (no heredoc — avoids YAML parse issues) ──
           BODY_FILE="$(mktemp /tmp/pr-body.XXXXXX.md)"
 
-          cat > "$BODY_FILE" <<'STATIC'
-## Summary
-Automated PR — update the summary below before merging.
+          # Static template written line-by-line so YAML indentation is never broken
+          echo "## Summary"                                          > "$BODY_FILE"
+          echo "Automated PR - update the summary below before merging." >> "$BODY_FILE"
+          echo ""                                                   >> "$BODY_FILE"
+          echo "## Type of Change"                                  >> "$BODY_FILE"
+          echo "- [ ] Bug fix"                                      >> "$BODY_FILE"
+          echo "- [ ] New feature"                                  >> "$BODY_FILE"
+          echo "- [ ] Refactor"                                     >> "$BODY_FILE"
+          echo "- [ ] Documentation"                                >> "$BODY_FILE"
+          echo "- [ ] Config / CI"                                  >> "$BODY_FILE"
+          echo ""                                                   >> "$BODY_FILE"
+          echo "## Checklist"                                       >> "$BODY_FILE"
+          echo "- [ ] Ran cds watch locally and tested manually"    >> "$BODY_FILE"
+          echo "- [ ] npx eslint . passes locally"                  >> "$BODY_FILE"
+          echo "- [ ] npx cds build --production passes locally"    >> "$BODY_FILE"
+          echo "- [ ] Linked to related issue (if any): Closes #___" >> "$BODY_FILE"
 
-## Type of Change
-- [ ] 🐛 Bug fix
-- [ ] ✨ New feature
-- [ ] ♻️ Refactor
-- [ ] 📖 Documentation
-- [ ] 🔧 Config / CI
-
-## Checklist
-- [ ] Ran `cds watch` locally and tested manually
-- [ ] `npx eslint .` passes locally
-- [ ] `npx cds build --production` passes locally
-- [ ] Linked to related issue (if any): Closes #___
-STATIC
-
-          # Append dynamic sections (no heredoc, no quoting issues)
+          # Append dynamic sections
           echo ""                                       >> "$BODY_FILE"
           echo "---"                                    >> "$BODY_FILE"
           echo "## Commits in this PR"                  >> "$BODY_FILE"
