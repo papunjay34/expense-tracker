@@ -12,4 +12,5 @@ service ExpenseTrackerService {
     entity Goals             as projection on my.Goal;
     entity AI_Insights       as projection on my.AIInsight;
 
+
 }

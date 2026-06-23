@@ -1,11 +1,10 @@
 name: Auto Create Pull Request
 
 # ─── Triggers ────────────────────────────────────────────────────────────────
-# Fires whenever a developer pushes to any branch except develop and main
+# Fires whenever a developer pushes to any branch except main
 on:
   push:
     branches-ignore:
-      - develop
       - main
 
 # ─── Permissions ─────────────────────────────────────────────────────────────
@@ -16,7 +15,7 @@ permissions:
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 jobs:
   create-pr:
-    name: 🔀 Auto-Create PR → develop
+    name: 🔀 Auto-Create PR → main
     runs-on: ubuntu-latest
 
     steps:
@@ -37,12 +36,12 @@ jobs:
           TITLE="${PREFIX}: ${READABLE}"
 
           # ── Commits not yet in develop ────────────────────────────────────
-          git fetch origin develop 2>/dev/null || true
-          COMMITS=$(git log origin/develop..HEAD --oneline --no-merges 2>/dev/null | head -20 || true)
-          [ -z "$COMMITS" ] && COMMITS="No new commits compared to develop."
+          git fetch origin main 2>/dev/null || true
+          COMMITS=$(git log origin/main..HEAD --oneline --no-merges 2>/dev/null | head -20 || true)
+          [ -z "$COMMITS" ] && COMMITS="No new commits compared to main."
 
           # ── Changed files by area ─────────────────────────────────────────
-          CHANGED=$(git diff --name-only origin/develop...HEAD 2>/dev/null | head -30 || true)
+          CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null | head -30 || true)
           DB_FILES=$(echo "$CHANGED"    | grep "^db/"   | sed 's/^/- /' || true)
           SRV_FILES=$(echo "$CHANGED"   | grep "^srv/"  | sed 's/^/- /' || true)
           TEST_FILES=$(echo "$CHANGED"  | grep "^test/" | sed 's/^/- /' || true)
@@ -96,14 +95,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Use develop if it exists, otherwise fall back to main
-          if git ls-remote --exit-code origin refs/heads/develop > /dev/null 2>&1; then
-            echo "branch=develop" >> "$GITHUB_OUTPUT"
-            echo "Base branch resolved to: develop"
-          else
-            echo "branch=main" >> "$GITHUB_OUTPUT"
-            echo "develop not found — falling back to: main"
-          fi
+          # Always target main
+          echo "branch=main" >> "$GITHUB_OUTPUT"
+          echo "Base branch resolved to: main"
 
       - name: Check if PR already exists
         id: check-pr

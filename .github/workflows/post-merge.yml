@@ -1,11 +1,11 @@
-name: Post-Merge Pipeline (develop)
+name: Post-Merge Pipeline (main)
 
 # ─── Triggers ───────────────────────────────────────────────────────────────
-# Runs after a PR is successfully merged into 'develop'
+# Runs after a PR is successfully merged into 'main'
 on:
   push:
     branches:
-      - develop
+      - main
 
 # ─── Permissions ────────────────────────────────────────────────────────────
 permissions:
