@@ -103,7 +103,7 @@ jobs:
         id: base
         if: steps.git-info.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           # Always target main
           echo "branch=main" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,7 @@ jobs:
         id: check-pr
         if: steps.git-info.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           EXISTING=$(gh pr list \
             --head "${GITHUB_REF_NAME}" \
@@ -134,7 +134,7 @@ jobs:
         id: create-pr
         if: steps.git-info.outputs.skip != 'true' && steps.check-pr.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           PR_URL=$(gh pr create \
             --base "${{ steps.base.outputs.branch }}" \
