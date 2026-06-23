@@ -1,0 +1,180 @@
+name: Post-Merge Pipeline (develop)
+
+# ─── Triggers ───────────────────────────────────────────────────────────────
+# Runs after a PR is successfully merged into 'develop'
+on:
+  push:
+    branches:
+      - develop
+
+# ─── Permissions ────────────────────────────────────────────────────────────
+permissions:
+  contents: read
+  pull-requests: write
+
+# ─── Jobs ───────────────────────────────────────────────────────────────────
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # JOB 1 — Verify merged code still builds and tests pass
+  # ════════════════════════════════════════════════════════════════
+  verify-merge:
+    name: 🔒 Verify Merge Integrity
+    runs-on: ubuntu-latest
+    outputs:
+      build_ok: ${{ steps.build.outcome == 'success' }}
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: |
+          npx eslint . \
+            --ignore-pattern "gen/**" \
+            --ignore-pattern "node_modules/**"
+
+      - name: CDS build (production)
+        id: build
+        run: npx cds build --production
+
+      - name: Run tests
+        run: |
+          if node -e "require('./package.json').scripts.test" 2>/dev/null; then
+            npm test
+          else
+            echo "No test script configured — skipping."
+          fi
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 2 — Generate and post a merge summary to the linked PR
+  # ════════════════════════════════════════════════════════════════
+  merge-summary:
+    name: 📝 Post Merge Summary
+    runs-on: ubuntu-latest
+    needs: [verify-merge]
+    if: always()
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # Need parent commit for diff stats
+
+      - name: Compute diff stats
+        id: diff
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | wc -l)
+          INSERTIONS=$(git diff --stat HEAD~1 HEAD | grep -oP '\d+ insertion' | grep -oP '\d+' || echo 0)
+          DELETIONS=$(git diff --stat HEAD~1 HEAD | grep -oP '\d+ deletion' | grep -oP '\d+' || echo 0)
+          COMMIT=$(git log -1 --format='%H')
+          AUTHOR=$(git log -1 --format='%an')
+          MESSAGE=$(git log -1 --format='%s')
+
+          echo "files=$FILES"           >> $GITHUB_OUTPUT
+          echo "insertions=$INSERTIONS" >> $GITHUB_OUTPUT
+          echo "deletions=$DELETIONS"   >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT"         >> $GITHUB_OUTPUT
+          echo "author=$AUTHOR"         >> $GITHUB_OUTPUT
+          echo "message=$MESSAGE"       >> $GITHUB_OUTPUT
+
+      - name: Post summary to linked PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const verifyStatus = '${{ needs.verify-merge.result }}';
+            const files        = '${{ steps.diff.outputs.files }}';
+            const insertions   = '${{ steps.diff.outputs.insertions }}';
+            const deletions    = '${{ steps.diff.outputs.deletions }}';
+            const commit       = '${{ steps.diff.outputs.commit }}';
+            const author       = '${{ steps.diff.outputs.author }}';
+            const message      = '${{ steps.diff.outputs.message }}';
+
+            const statusLine = verifyStatus === 'success'
+              ? '✅ **Merged successfully — post-merge checks passed.**'
+              : '⚠️ **Merged but post-merge verification detected issues.** Please investigate.';
+
+            const body = [
+              '## 🚀 Code Merged to `develop`',
+              '',
+              statusLine,
+              '',
+              '### 📦 Merge Details',
+              `| Field | Value |`,
+              `|-------|-------|`,
+              `| Commit  | \`${commit.substring(0,8)}\` |`,
+              `| Author  | ${author} |`,
+              `| Message | ${message} |`,
+              `| Files changed | ${files} |`,
+              `| Lines added   | +${insertions} |`,
+              `| Lines removed | -${deletions} |`,
+              '',
+              '---',
+              `> _Post-merge report by GitHub Actions • ${new Date().toUTCString()}_`,
+            ].join('\n');
+
+            // Find the PR that was just merged
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              base: 'develop',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 1,
+            });
+
+            if (prs.length > 0 && prs[0].merged_at) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs[0].number,
+                body,
+              });
+            }
+
+            // Always write to the Actions job summary
+            await core.summary
+              .addHeading('Post-Merge Report')
+              .addRaw(body)
+              .write();
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 3 — (Optional) Package MTA archive for BTP deployment
+  #         Uncomment and configure when ready to deploy to SAP BTP
+  # ════════════════════════════════════════════════════════════════
+  # package-mtar:
+  #   name: 📦 Build MTA Archive (MTAR)
+  #   runs-on: ubuntu-latest
+  #   needs: [verify-merge]
+  #   if: needs.verify-merge.outputs.build_ok == 'true'
+  #
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
+  #
+  #     - name: Install MBT
+  #       run: npm install -g mbt
+  #
+  #     - name: Build MTAR
+  #       run: mbt build --mtar expense-tracker.mtar
+  #
+  #     - name: Upload MTAR artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: expense-tracker-mtar
+  #         path: mta_archives/expense-tracker.mtar
+  #         retention-days: 14

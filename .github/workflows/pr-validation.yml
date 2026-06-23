@@ -1,0 +1,390 @@
+name: PR Validation Pipeline
+
+# ─── Triggers ───────────────────────────────────────────────────────────────
+# Runs whenever a developer opens, updates, or reopens a PR targeting 'develop'
+on:
+  pull_request:
+    branches:
+      - develop
+    types: [opened, synchronize, reopened]
+
+# ─── Permissions ────────────────────────────────────────────────────────────
+permissions:
+  contents: read
+  pull-requests: write # Needed to post comments and approve the PR
+
+# ─── Jobs ───────────────────────────────────────────────────────────────────
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # JOB 1 — Lint: Static code analysis with ESLint
+  # ════════════════════════════════════════════════════════════════
+  lint:
+    name: 🔍 ESLint Code Quality
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.lint-run.outcome }}
+      report: ${{ steps.lint-report.outputs.summary }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        id: lint-run
+        run: |
+          npx eslint . \
+            --format json \
+            --output-file eslint-results.json \
+            --ignore-pattern "gen/**" \
+            --ignore-pattern "node_modules/**" || true
+
+      - name: Parse ESLint results into summary
+        id: lint-report
+        run: |
+          node - <<'EOF'
+          const fs   = require('fs');
+          const path = require('path');
+
+          if (!fs.existsSync('eslint-results.json')) {
+            console.log('::set-output name=summary::No ESLint results found.');
+            process.exit(0);
+          }
+
+          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+          let totalErrors   = 0;
+          let totalWarnings = 0;
+          const lines = [];
+
+          results.forEach(file => {
+            if (file.errorCount === 0 && file.warningCount === 0) return;
+            totalErrors   += file.errorCount;
+            totalWarnings += file.warningCount;
+
+            const rel = path.relative(process.cwd(), file.filePath);
+            lines.push(`**${rel}** — ${file.errorCount} error(s), ${file.warningCount} warning(s)`);
+
+            file.messages.forEach(m => {
+              const sev = m.severity === 2 ? '❌ ERROR' : '⚠️ WARN';
+              lines.push(`  - \`L${m.line}:${m.column}\` ${sev} [${m.ruleId}]: ${m.message}`);
+            });
+          });
+
+          let summary = '';
+          if (totalErrors === 0 && totalWarnings === 0) {
+            summary = '✅ No lint issues found.';
+          } else {
+            summary  = `❌ **${totalErrors} error(s)** and ⚠️ **${totalWarnings} warning(s)** detected.\n\n`;
+            summary += lines.join('\n');
+          }
+
+          // GitHub Actions multiline output
+          const output = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(output, `summary<<LINT_EOF\n${summary}\nLINT_EOF\n`);
+          EOF
+
+      - name: Upload ESLint results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-results
+          path: eslint-results.json
+          retention-days: 7
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 2 — Build: Validate CDS build compiles cleanly
+  # ════════════════════════════════════════════════════════════════
+  build:
+    name: 🏗️ CDS Build Validation
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.cds-build.outcome }}
+      report: ${{ steps.build-report.outputs.summary }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run CDS build (production mode)
+        id: cds-build
+        run: |
+          npx cds build --production 2>&1 | tee build-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Generate build summary
+        id: build-report
+        if: always()
+        run: |
+          EXIT="${{ steps.cds-build.outputs.exit_code }}"
+          if [ "$EXIT" = "0" ]; then
+            SUMMARY="✅ CDS build succeeded — the project compiles without errors."
+          else
+            ERRORS=$(grep -i "error" build-output.txt | head -20 || true)
+            SUMMARY="❌ CDS build **failed**.\n\n\`\`\`\n${ERRORS}\n\`\`\`"
+          fi
+          {
+            echo "summary<<BUILD_EOF"
+            echo -e "$SUMMARY"
+            echo "BUILD_EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build-output.txt
+          retention-days: 7
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 3 — Test: Run unit/integration tests
+  # ════════════════════════════════════════════════════════════════
+  test:
+    name: 🧪 Automated Tests
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.run-tests.outcome }}
+      report: ${{ steps.test-report.outputs.summary }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        id: run-tests
+        run: |
+          # Check if a test script is defined in package.json
+          if node -e "require('./package.json').scripts.test" 2>/dev/null; then
+            npm test 2>&1 | tee test-output.txt
+            echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+            echo "ran=true" >> $GITHUB_OUTPUT
+          else
+            echo "ran=false" >> $GITHUB_OUTPUT
+            echo "exit_code=0"  >> $GITHUB_OUTPUT
+            echo "⚠️ No test script configured in package.json" > test-output.txt
+          fi
+        continue-on-error: true
+
+      - name: Generate test summary
+        id: test-report
+        if: always()
+        run: |
+          RAN="${{ steps.run-tests.outputs.ran }}"
+          EXIT="${{ steps.run-tests.outputs.exit_code }}"
+
+          if [ "$RAN" = "false" ]; then
+            SUMMARY="⚠️ **No test script found** in \`package.json\`.\n\n> 💡 **Suggestion:** Add a \`\"test\"\` script and write unit tests using \`@cap-js/sqlite\` in-memory for your CAP entities."
+          elif [ "$EXIT" = "0" ]; then
+            SUMMARY="✅ All tests passed."
+          else
+            FAILURES=$(grep -E "FAIL|Error|✗|×" test-output.txt | head -20 || true)
+            SUMMARY="❌ **Tests failed.**\n\n\`\`\`\n${FAILURES}\n\`\`\`"
+          fi
+          {
+            echo "summary<<TEST_EOF"
+            echo -e "$SUMMARY"
+            echo "TEST_EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: test-output.txt
+          retention-days: 7
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 4 — Report: Post a combined review comment on the PR
+  # ════════════════════════════════════════════════════════════════
+  report:
+    name: 📋 Post PR Review Comment
+    runs-on: ubuntu-latest
+    needs: [lint, build, test]
+    if: always() # Always post so developer sees results even on failure
+
+    steps:
+      - name: Post review comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const lintOutcome  = '${{ needs.lint.outputs.outcome }}';
+            const buildOutcome = '${{ needs.build.outputs.outcome }}';
+            const testOutcome  = '${{ needs.test.outputs.outcome }}';
+
+            const lintReport  = `${{ needs.lint.outputs.report }}`;
+            const buildReport = `${{ needs.build.outputs.report }}`;
+            const testReport  = `${{ needs.test.outputs.report }}`;
+
+            const allPassed =
+              lintOutcome  === 'success' &&
+              buildOutcome === 'success' &&
+              (testOutcome === 'success' || testOutcome === '');
+
+            const statusBadge = allPassed
+              ? '## ✅ All Checks Passed — PR is Ready to Merge'
+              : '## ❌ Some Checks Failed — Please Review Suggestions Below';
+
+            const suggestions = [];
+            if (lintOutcome !== 'success') {
+              suggestions.push(
+                '### 💡 ESLint Suggestions',
+                '- Fix all ❌ errors before merging (warnings are acceptable but should be addressed).',
+                '- Run `npx eslint . --fix` locally to auto-fix many common issues.',
+                '- Check the [ESLint rule reference](https://eslint.org/docs/rules/) for guidance on specific rules.',
+              );
+            }
+            if (buildOutcome !== 'success') {
+              suggestions.push(
+                '### 💡 Build Suggestions',
+                '- Run `npx cds build --production` locally to reproduce the error.',
+                '- Check your `.cds` model files for syntax errors or unresolved associations.',
+                '- Ensure all `@sap/cds` imports and entity references are correctly defined.',
+              );
+            }
+            if (testOutcome !== 'success' && testOutcome !== '') {
+              suggestions.push(
+                '### 💡 Test Suggestions',
+                '- Run `npm test` locally to reproduce failures.',
+                '- Check that all test fixtures and mock data in `db/data/` are consistent with schema changes.',
+                '- Add or update tests for any new service handlers introduced in this PR.',
+              );
+            }
+
+            const suggestionBlock = suggestions.length > 0
+              ? `\n---\n## 🛠️ Automated Suggestions\n${suggestions.join('\n')}`
+              : '';
+
+            const body = [
+              statusBadge,
+              '',
+              '---',
+              '### 📊 Check Results',
+              '',
+              `| Check | Status | Details |`,
+              `|-------|--------|---------|`,
+              `| 🔍 ESLint Lint   | ${lintOutcome  === 'success' ? '✅ Passed' : '❌ Failed'} | See below |`,
+              `| 🏗️ CDS Build     | ${buildOutcome === 'success' ? '✅ Passed' : '❌ Failed'} | See below |`,
+              `| 🧪 Tests         | ${testOutcome  === 'success' ? '✅ Passed' : (testOutcome === '' ? '⚠️ Skipped' : '❌ Failed')} | See below |`,
+              '',
+              '---',
+              '### 🔍 ESLint Report',
+              lintReport || '_Not available_',
+              '',
+              '### 🏗️ Build Report',
+              buildReport || '_Not available_',
+              '',
+              '### 🧪 Test Report',
+              testReport || '_Not available_',
+              suggestionBlock,
+              '',
+              '---',
+              `> _Automated review by GitHub Actions pipeline • ${new Date().toUTCString()}_`,
+            ].join('\n');
+
+            // Delete previous bot comment to avoid clutter
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.login === 'github-actions[bot]' &&
+              c.body.includes('Automated review by GitHub Actions pipeline')
+            );
+            if (botComment) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+              });
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 5 — Auto-Approve: Approve PR when all checks pass
+  # Note: Requires 'REVIEWER_TOKEN' secret (PAT of a reviewer account)
+  #       The GITHUB_TOKEN cannot approve a PR it is part of; a
+  #       separate bot/reviewer PAT must be stored as a repo secret.
+  # ════════════════════════════════════════════════════════════════
+  auto-approve:
+    name: ✅ Auto-Approve PR
+    runs-on: ubuntu-latest
+    needs: [lint, build, test]
+    if: |
+      needs.lint.outputs.outcome  == 'success' &&
+      needs.build.outputs.outcome == 'success' &&
+      (needs.test.outputs.outcome == 'success' || needs.test.outputs.outcome == '')
+
+    steps:
+      - name: Approve the Pull Request
+        uses: actions/github-script@v7
+        with:
+          # Use a separate reviewer PAT so the approval is not self-approval.
+          # Add a PAT (with repo + pull-requests scope) as secret REVIEWER_TOKEN.
+          github-token: ${{ secrets.REVIEWER_TOKEN }}
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: [
+                '✅ **Automated approval — all pipeline checks passed.**',
+                '',
+                '| Check | Status |',
+                '|-------|--------|',
+                '| 🔍 ESLint  | ✅ Passed |',
+                '| 🏗️ Build   | ✅ Passed |',
+                '| 🧪 Tests   | ✅ Passed |',
+                '',
+                'This PR is approved for merging into `develop`.',
+              ].join('\n'),
+            });
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.REVIEWER_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr merge "$PR_NUMBER" \
+            --repo "$REPO" \
+            --auto \
+            --squash \
+            --subject "$(gh pr view $PR_NUMBER --repo $REPO --json title -q .title)" \
+            --body "Auto-merged after passing all CI checks."

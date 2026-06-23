@@ -1,0 +1,16 @@
+# CODEOWNERS
+# Defines who gets automatically requested as a reviewer for each path.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: every PR requires at least one reviewer from the team
+*                           @your-org/expense-tracker-reviewers
+
+# Database schema changes require extra scrutiny
+db/schema.cds               @your-org/db-owners
+db/data/                    @your-org/db-owners
+
+# Service layer
+srv/                        @your-org/backend-owners
+
+# CI/CD pipeline changes
+.github/                    @your-org/devops-team
