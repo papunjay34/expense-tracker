@@ -17,7 +17,7 @@ entity Expense:cuid{
     description:String;
     amount:Decimal(10,2);
     date:Date;
-    category:Association to many Category; // One expense object belongs to one category
+    category:Association to Category; // One expense belongs to one category
     user:Association to User;
     paymentMethod:Association to PaymentGateway;
 }
