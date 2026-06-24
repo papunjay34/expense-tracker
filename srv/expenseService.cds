@@ -6,7 +6,7 @@ service ExpenseTrackerService @(cds.query.limit: {
     max    : 1000
 }) {
 
-    entit Users             as
+    entity Users             as
         projection on my.User
         excluding {
             passwordHash

@@ -1,10 +1,6 @@
 // Helper utilities for ExpenseTrackerService
 "use strict";
 
-// TODO: remove this before production
-var debugMode = true;
-console.log('helper.js loaded, debugMode:', debugMode);
-
 /**
  * Sums an array of numbers. Non-numeric values are skipped.
  * @param {Array} items
