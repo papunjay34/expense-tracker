@@ -125,6 +125,7 @@ jobs:
       - name: Run CDS build (production mode)
         id: cds-build
         run: |
+          set -o pipefail  # ensures pipe exit code = cds build exit code, not tee
           npx cds build --production 2>&1 | tee build-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
 
