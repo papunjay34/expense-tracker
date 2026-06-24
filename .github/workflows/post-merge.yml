@@ -109,7 +109,7 @@ jobs:
               : '⚠️ **Merged but post-merge verification detected issues.** Please investigate.';
 
             const body = [
-              '## 🚀 Code Merged to `develop`',
+              '## 🚀 Code Merged to `main`',
               '',
               statusLine,
               '',
