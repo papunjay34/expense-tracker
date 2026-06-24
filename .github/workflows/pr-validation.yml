@@ -179,8 +179,8 @@ jobs:
       - name: Run tests
         id: run-tests
         run: |
-          # Check if a test script is defined in package.json
-          if node -e "require('./package.json').scripts.test" 2>/dev/null; then
+          # Check if a test script is defined in package.json (exit 1 when undefined)
+          if node -e "const s=require('./package.json').scripts; if(!s||!s.test){process.exit(1)}" 2>/dev/null; then
             npm test 2>&1 | tee test-output.txt
             echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
             echo "ran=true" >> $GITHUB_OUTPUT
