@@ -357,12 +357,7 @@ jobs:
               body,
             });
 
-  # ════════════════════════════════════════════════════════════════
-  # JOB 5 — Code Review: Post an informational PR review comment
-  # Uses event:'COMMENT' — works even when the PR was created by
-  # github-actions[bot] (avoids "cannot approve own PR" error).
-  # Auto-merge is gated on check outcomes, not on APPROVE event.
-  # ════════════════════════════════════════════════════════════════
+  # JOB 5 — Deep code review: diff analysis + pipeline verdict
   code-review:
     name: Automated Code Review
     runs-on: ubuntu-latest
@@ -372,13 +367,13 @@ jobs:
       all_passed: ${{ steps.review.outputs.all_passed }}
 
     steps:
-      - name: Post code review comment
+      - name: Post code review
         id: review
         uses: actions/github-script@v7
         env:
-          LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
+          LINT_OUTCOME:  ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
-          TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
+          TEST_OUTCOME:  ${{ needs.test.outputs.outcome }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -393,12 +388,127 @@ jobs:
 
             core.setOutput('all_passed', allPassed ? 'true' : 'false');
 
+            // ── Fetch PR metadata and diff ────────────────────────────────────
+            const { data: pr } = await github.rest.pulls.get({
+              owner:       context.repo.owner,
+              repo:        context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner:       context.repo.owner,
+              repo:        context.repo.repo,
+              pull_number: context.issue.number,
+              per_page:    100,
+            });
+
+            // ── PR Overview ───────────────────────────────────────────────────
+            const totalAdditions = files.reduce((s, f) => s + f.additions, 0);
+            const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
+
+            const fileList = files.map(f => {
+              const tag =
+                f.status === 'added'   ? 'ADDED'    :
+                f.status === 'removed' ? 'REMOVED'  : 'MODIFIED';
+              return `| \`${f.filename}\` | ${tag} | +${f.additions} / -${f.deletions} |`;
+            }).join('\n');
+
+            // ── Diff analysis ─────────────────────────────────────────────────
+            const qualityIssues = [];
+            const errorIssues   = [];
+            const perfIssues    = [];
+
+            for (const file of files) {
+              const patch     = file.patch || '';
+              const added     = patch.split('\n')
+                                     .filter(l => l.startsWith('+') && !l.startsWith('+++'))
+                                     .map(l => l.slice(1));
+              const fn        = file.filename;
+
+              // -- CDS schema / service checks ----------------------------------
+              if (fn.endsWith('.cds')) {
+                const unbounded = added.filter(l =>
+                  /:\s*String[^(]/.test(l) && !l.trim().startsWith('//'));
+                if (unbounded.length)
+                  qualityIssues.push(
+                    `**\`${fn}\`** — ${unbounded.length} unbounded \`String\` field(s). ` +
+                    'Specify a maximum length, e.g. `String(255)`, to avoid NCLOB columns in HANA.');
+
+                const noMandatory = added.filter(l =>
+                  /:\s*(String|Integer|Decimal|Boolean|Date|DateTime|UUID)/.test(l) &&
+                  !l.includes('@mandatory') && !l.trim().startsWith('//'));
+                if (noMandatory.length)
+                  qualityIssues.push(
+                    `**\`${fn}\`** — ${noMandatory.length} field(s) without \`@mandatory\`. ` +
+                    'Mark fields that must always have a value to enforce data integrity.');
+
+                const entities = added.filter(l => /^\s*entity\s+/.test(l));
+                const hasAuth  = added.some(l => /@restrict|@requires/.test(l));
+                if (entities.length && !hasAuth)
+                  errorIssues.push(
+                    `**\`${fn}\`** — ${entities.length} entity definition(s) without access control. ` +
+                    'Add `@restrict` or `@requires` to prevent unauthorised data access.');
+
+                const services    = added.filter(l => /^\s*service\s+/.test(l));
+                const hasLimit    = added.some(l => /cds\.query\.limit/.test(l));
+                if (services.length && !hasLimit)
+                  perfIssues.push(
+                    `**\`${fn}\`** — Service defined without \`@(cds.query.limit)\`. ` +
+                    'Add a default and maximum to prevent unbounded OData queries.');
+              }
+
+              // -- JavaScript checks --------------------------------------------
+              if (fn.endsWith('.js')) {
+                const consoleLogs = added.filter(l =>
+                  /console\.(log|warn|debug)/.test(l) && !l.trim().startsWith('//'));
+                if (consoleLogs.length)
+                  qualityIssues.push(
+                    `**\`${fn}\`** — ${consoleLogs.length} \`console.log/warn/debug\` statement(s). ` +
+                    'Remove debug output or replace with a structured logger before merging.');
+
+                const todos = added.filter(l => /\b(TODO|FIXME|HACK)\b/.test(l));
+                if (todos.length)
+                  qualityIssues.push(
+                    `**\`${fn}\`** — ${todos.length} TODO/FIXME comment(s) found. ` +
+                    'Resolve outstanding items before merging to main.');
+
+                const asyncFns  = added.filter(l =>
+                  /async\s+(function|\w+\s*\(|\([^)]*\)\s*=>)/.test(l));
+                const hasErrHdl = added.some(l =>
+                  /\btry\b/.test(l) || /\.catch\(/.test(l) || /req\.error\(/.test(l));
+                if (asyncFns.length && !hasErrHdl)
+                  errorIssues.push(
+                    `**\`${fn}\`** — ${asyncFns.length} async function(s) without visible error handling. ` +
+                    'Wrap async operations in `try/catch` or propagate errors via `req.error()`.');
+
+                const reqDataAccess = added.filter(l => /req\.data\.\w+/.test(l));
+                const hasValidation = added.some(l => /req\.error\(|if\s*\(!/.test(l));
+                if (reqDataAccess.length && !hasValidation)
+                  errorIssues.push(
+                    `**\`${fn}\`** — \`req.data\` accessed without apparent input validation. ` +
+                    'Validate required fields and data types before processing.');
+
+                const awaitInLoop = /for\s*\([\s\S]{0,200}?\bawait\b/.test(patch);
+                if (awaitInLoop)
+                  perfIssues.push(
+                    `**\`${fn}\`** — Possible N+1 query: \`await\` inside a loop. ` +
+                    'Batch queries outside the loop to avoid sequential round-trips to the database.');
+
+                const unboundedSelect = added.filter(l =>
+                  /SELECT\.from|\.from\(/.test(l) && !/.one/.test(l) && !/limit/.test(l));
+                if (unboundedSelect.length)
+                  perfIssues.push(
+                    `**\`${fn}\`** — ${unboundedSelect.length} SELECT statement(s) without \`.one\` or explicit limit. ` +
+                    'Large result sets may cause memory pressure; apply a limit or use `.one` for single-row lookups.');
+              }
+            }
+
+            // ── Format result table ───────────────────────────────────────────
             const fmt = o =>
               o === 'success' ? 'PASSED'  :
-              o === 'failure' ? 'FAILED'  :
-              o === ''        ? 'SKIPPED' : 'SKIPPED';
+              o === 'failure' ? 'FAILED'  : 'SKIPPED';
 
-            const table = [
+            const checkTable = [
               '| Check      | Result  |',
               '|------------|---------|',
               `| ESLint     | ${fmt(lintOutcome)}  |`,
@@ -406,49 +516,80 @@ jobs:
               `| Tests      | ${fmt(testOutcome)}  |`,
             ].join('\n');
 
-            let reviewBody;
-            if (allPassed) {
-              reviewBody = [
-                '## Automated Review',
-                '',
-                '**Verdict:** APPROVED',
-                '',
-                'All pipeline checks passed. This pull request is queued for automatic squash-merge into `main`.',
-                '',
-                table,
-              ].join('\n');
-            } else {
-              const issues = [];
-              if (lintOutcome !== 'success')
-                issues.push('**ESLint** — Fix linting errors before merging. Run `npx eslint . --fix` locally.');
-              if (buildOutcome !== 'success')
-                issues.push('**Build** — Run `npx cds build --production` locally to identify the error.');
-              if (testOutcome !== 'success' && testOutcome !== '')
-                issues.push('**Tests** — Run `npm test` locally. Update tests or fixtures if schema changed.');
+            // ── Assemble review body ──────────────────────────────────────────
+            const verdict = allPassed ? 'APPROVED' : 'CHANGES REQUIRED';
 
-              reviewBody = [
-                '## Automated Review',
-                '',
-                '**Verdict:** CHANGES REQUIRED',
-                '',
-                'The following checks failed and must be resolved before this pull request can be merged.',
-                '',
-                table,
-                '',
+            const sections = [
+              '## Automated Code Review',
+              '',
+              `**Verdict:** ${verdict}`,
+              '',
+              '---',
+              '',
+              '### Pipeline Results',
+              '',
+              checkTable,
+              '',
+              '---',
+              '',
+              '### PR Overview',
+              '',
+              `**Title:** ${pr.title}`,
+              `**Author:** ${pr.user.login}`,
+              `**Files changed:** ${files.length} | **Lines added:** +${totalAdditions} | **Lines removed:** -${totalDeletions}`,
+              '',
+              '| File | Status | Changes |',
+              '|------|--------|---------|',
+              fileList,
+              '',
+              '---',
+              '',
+              '### Code Quality',
+              '',
+              qualityIssues.length
+                ? qualityIssues.map(i => `- ${i}`).join('\n')
+                : 'No code quality issues detected in this diff.',
+              '',
+              '---',
+              '',
+              '### Error Handling',
+              '',
+              errorIssues.length
+                ? errorIssues.map(i => `- ${i}`).join('\n')
+                : 'No error handling concerns detected in this diff.',
+              '',
+              '---',
+              '',
+              '### Performance',
+              '',
+              perfIssues.length
+                ? perfIssues.map(i => `- ${i}`).join('\n')
+                : 'No performance concerns detected in this diff.',
+            ];
+
+            if (!allPassed) {
+              const actions = [];
+              if (lintOutcome  !== 'success') actions.push('**ESLint** — Run `npx eslint . --fix` locally.');
+              if (buildOutcome !== 'success') actions.push('**Build** — Run `npx cds build --production` locally.');
+              if (testOutcome  !== 'success' && testOutcome !== '') actions.push('**Tests** — Run `npm test` locally.');
+              sections.push(
+                '', '---', '',
                 '### Required Actions',
                 '',
-                issues.join('\n\n'),
+                actions.join('\n\n'),
                 '',
-                'Push a fix to this branch. The pipeline will re-run automatically.',
-              ].join('\n');
+                'Push a fix to this branch. The pipeline will re-run automatically.'
+              );
             }
+
+            sections.push('', '---', `*Automated review by GitHub Actions | ${new Date().toUTCString()}*`);
 
             await github.rest.pulls.createReview({
               owner:       context.repo.owner,
               repo:        context.repo.repo,
               pull_number: context.issue.number,
               event:       'COMMENT',
-              body:        reviewBody,
+              body:        sections.join('\n'),
             });
 
   # ════════════════════════════════════════════════════════════════
