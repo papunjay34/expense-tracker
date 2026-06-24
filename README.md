@@ -1,16 +1,22 @@
-# Getting Started
+# Expense Tracker
 
-Welcome to your new project.
+A SAP CAP (Cloud Application Programming Model) based expense tracking application built with Node.js.
 
-It contains these folders and files, following our recommended project layout:
+## Features
+- Track expenses by category and payment method
+- Set and monitor budgets and financial goals
+- Recurring expense management
+- AI-powered spending insights
+- Notification system
+
+## Project Structure
 
 File or Folder | Purpose
 ---------|----------
-`app/` | content for UI frontends goes here
-`db/` | your domain models and data go here
-`srv/` | your service models and code go here
-`package.json` | project metadata and configuration
-`readme.md` | this getting started guide
+`db/` | Domain models, entities and seed data
+`srv/` | Service definitions and handlers
+`test/` | HTTP test files
+`package.json` | Project metadata and dependencies
 
 
 ## Next Steps
