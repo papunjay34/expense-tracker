@@ -11,4 +11,6 @@ service ExpenseTrackerService {
     entity RecurringExpenses as projection on my.RecurringExpense;
     entity Goals             as projection on my.Goal;
     entity AI_Insights       as projection on my.AIInsight;
+
+    // added space 
 }
