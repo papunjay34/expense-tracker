@@ -2,7 +2,7 @@ using com.expense.tracker as my from '../db/schema';
 
 service ExpenseTrackerService {
 
-    entit Users             as projection on my.User excluding { passwordHash };
+    entity Users             as projection on my.User excluding { passwordHash };
     entity Expenses          as projection on my.Expense;
     entity Categories        as projection on my.Category;
     entity Budgets           as projection on my.Budget;

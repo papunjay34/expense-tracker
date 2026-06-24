@@ -1,12 +1,12 @@
-// BAD CODE - intentional ESLint violations for pipeline testing
-var unusedVariable = "this variable is never used";  // ESLint: no-unused-vars + no-var
+// Helper utilities for ExpenseTrackerService
+'use strict';
 
 function calculateTotal(items) {
-    var total = 0                                     // ESLint: no-var, missing semicolon
-    for (var i = 0; i < items.length; i++) {         // ESLint: no-var, prefer for-of
-        total = total + items[i]
+    let total = 0;
+    for (const item of items) {
+        total += item;
     }
-    return total
+    return total;
 }
 
-module.exports = { calculateTotal }
+module.exports = { calculateTotal };
