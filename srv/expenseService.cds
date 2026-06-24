@@ -1,6 +1,7 @@
 using com.expense.tracker as my from '../db/schema';
 
-service ExpenseTrackerService {
+@requires: 'authenticated-user'
+service ExpenseTrackerService @(cds.query.limit: { default: 100, max: 1000 }) {
 
     entity Users             as projection on my.User excluding { passwordHash };
     entity Expenses          as projection on my.Expense;
@@ -12,10 +13,10 @@ service ExpenseTrackerService {
     entity Goals             as projection on my.Goal;
     entity AI_Insights       as projection on my.AIInsight;
 
-    // Action: Get total expenses for a user within a date range
-    function getTotalExpenses(userId: UUID, fromDate: Date, toDate: Date) returns Decimal(10,2);
+    // Returns total amount spent by a user within a date range
+    function getTotalExpenses(userId: UUID, fromDate: Date, toDate: Date) returns Decimal(10, 2);
 
-    // Action: Get budget utilisation percentage for a user
-    function getBudgetUtilisation(userId: UUID, categoryId: UUID) returns Decimal(5,2);
+    // Returns budget utilisation percentage (0–100) for a user and category
+    function getBudgetUtilisation(userId: UUID, categoryId: UUID) returns Decimal(5, 2);
 
 }

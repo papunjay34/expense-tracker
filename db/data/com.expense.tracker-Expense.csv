@@ -1,1 +1,1 @@
-ID,description,amount,date,user_ID,paymentMethod_ID
+ID,description,amount,date,category_ID,user_ID,paymentMethod_ID
