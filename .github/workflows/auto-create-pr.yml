@@ -142,8 +142,26 @@ jobs:
             --title "${{ steps.git-info.outputs.title }}" \
             --body-file "${{ steps.git-info.outputs.body_file }}")
 
-          echo "url=${PR_URL}" >> "$GITHUB_OUTPUT"
+          # Extract PR number from URL (last path segment)
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "url=${PR_URL}"         >> "$GITHUB_OUTPUT"
+          echo "number=${PR_NUMBER}"   >> "$GITHUB_OUTPUT"
           echo "PR created: ${PR_URL}"
+
+      - name: Request GitHub Copilot code review
+        if: steps.git-info.outputs.skip != 'true' && steps.check-pr.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          REPO:      ${{ github.repository }}
+          PR_NUMBER: ${{ steps.create-pr.outputs.number }}
+        run: |
+          # Request Copilot as reviewer — AI-powered code review on every PR
+          gh api \
+            repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers \
+            --method POST \
+            --field "reviewers[]=Copilot" \
+            --silent || echo "⚠️ Copilot review request skipped (may require Copilot Enterprise or plan upgrade)"
+          echo "✅ Copilot review requested for PR #${PR_NUMBER}"
 
       - name: Write job summary
         if: always()
