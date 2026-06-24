@@ -148,28 +148,13 @@ jobs:
           echo "number=${PR_NUMBER}"   >> "$GITHUB_OUTPUT"
           echo "PR created: ${PR_URL}"
 
-      - name: Request GitHub Copilot code review
-        if: steps.git-info.outputs.skip != 'true' && steps.check-pr.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
-          REPO:      ${{ github.repository }}
-          PR_NUMBER: ${{ steps.create-pr.outputs.number }}
-        run: |
-          # Request Copilot as reviewer — AI-powered code review on every PR
-          gh api \
-            repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers \
-            --method POST \
-            --field "reviewers[]=Copilot" \
-            --silent || echo "⚠️ Copilot review request skipped (may require Copilot Enterprise or plan upgrade)"
-          echo "✅ Copilot review requested for PR #${PR_NUMBER}"
-
       - name: Write job summary
         if: always()
         run: |
           BASE="${{ steps.base.outputs.branch }}"
           if [ "${{ steps.check-pr.outputs.exists }}" = "true" ]; then
-            echo "### ♻️ PR already exists — #${{ steps.check-pr.outputs.number }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "### PR already exists — #${{ steps.check-pr.outputs.number }}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### ✅ PR created → ${BASE}"                  >> "$GITHUB_STEP_SUMMARY"
+            echo "### PR created -> ${BASE}"                    >> "$GITHUB_STEP_SUMMARY"
             echo "${{ steps.create-pr.outputs.url }}"           >> "$GITHUB_STEP_SUMMARY"
           fi
