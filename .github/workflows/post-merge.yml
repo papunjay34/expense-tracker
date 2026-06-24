@@ -103,13 +103,14 @@ jobs:
             const commit       = '${{ steps.diff.outputs.commit }}';
             const author       = '${{ steps.diff.outputs.author }}';
             const message      = '${{ steps.diff.outputs.message }}';
+            const branch       = process.env.GITHUB_REF_NAME;
 
             const statusLine = verifyStatus === 'success'
               ? '✅ **Merged successfully — post-merge checks passed.**'
               : '⚠️ **Merged but post-merge verification detected issues.** Please investigate.';
 
             const body = [
-              '## 🚀 Code Merged to `main`',
+              `## 🚀 Code Merged to \`${branch}\``,
               '',
               statusLine,
               '',
