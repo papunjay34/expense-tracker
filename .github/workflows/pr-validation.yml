@@ -371,9 +371,9 @@ jobs:
         id: review
         uses: actions/github-script@v7
         env:
-          LINT_OUTCOME:  ${{ needs.lint.outputs.outcome }}
+          LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
-          TEST_OUTCOME:  ${{ needs.test.outputs.outcome }}
+          TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

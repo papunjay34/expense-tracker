@@ -15,7 +15,7 @@ service ExpenseTrackerService @(cds.query.limit: {
     entity Expenses          as projection on my.Expense;
 
     // New: action to mark a notification as read
-    action markNotificationRead(notificationId: UUID) returns Boolean;
+    action   markNotificationRead(notificationId: UUID)                   returns Boolean;
     entity Categories        as projection on my.Category;
     entity Budgets           as projection on my.Budget;
     entity Notifications     as projection on my.Notification;

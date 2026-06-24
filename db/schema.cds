@@ -1,10 +1,11 @@
 namespace com.expense.tracker;
-using { cuid } from '@sap/cds/common';
+
+using {cuid} from '@sap/cds/common';
 
 // User Entity
 entity User : cuid {
-    name         : String(100) @mandatory;
-    email        : String(255) @mandatory @assert.unique;
+    name         : String(100)  @mandatory;
+    email        : String(255)  @mandatory  @assert.unique;
     passwordHash : String(255);
 }
 
@@ -36,7 +37,7 @@ entity Budget : cuid {
 entity Notification : cuid {
     message   : String(1000) @mandatory;
     timeStamp : DateTime;
-    status    : String(50)   default 'UNREAD';
+    status    : String(50) default 'UNREAD';
     user      : Association to User;
 }
 
