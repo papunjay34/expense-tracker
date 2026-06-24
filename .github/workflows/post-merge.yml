@@ -18,7 +18,7 @@ jobs:
   # JOB 1 — Verify merged code still builds and tests pass
   # ════════════════════════════════════════════════════════════════
   verify-merge:
-    name: 🔒 Verify Merge Integrity
+    name: Verify Merge Integrity
     runs-on: ubuntu-latest
     outputs:
       build_ok: ${{ steps.build.outcome == 'success' }}
@@ -63,7 +63,7 @@ jobs:
   # JOB 2 — Generate and post a merge summary to the linked PR
   # ════════════════════════════════════════════════════════════════
   merge-summary:
-    name: 📝 Post Merge Summary
+    name: Post Merge Summary
     runs-on: ubuntu-latest
     needs: [verify-merge]
     if: always()
@@ -106,26 +106,26 @@ jobs:
             const branch       = process.env.GITHUB_REF_NAME;
 
             const statusLine = verifyStatus === 'success'
-              ? '✅ **Merged successfully — post-merge checks passed.**'
-              : '⚠️ **Merged but post-merge verification detected issues.** Please investigate.';
+              ? 'Post-merge verification passed.'
+              : 'Post-merge verification detected issues. Please investigate.';
 
             const body = [
-              `## 🚀 Code Merged to \`${branch}\``,
+              `## Code Merged to \`${branch}\``,
               '',
               statusLine,
               '',
-              '### 📦 Merge Details',
-              `| Field | Value |`,
-              `|-------|-------|`,
-              `| Commit  | \`${commit.substring(0,8)}\` |`,
-              `| Author  | ${author} |`,
-              `| Message | ${message} |`,
+              '### Merge Details',
+              `| Field         | Value |`,
+              `|---------------|-------|`,
+              `| Commit        | \`${commit.substring(0,8)}\` |`,
+              `| Author        | ${author} |`,
+              `| Message       | ${message} |`,
               `| Files changed | ${files} |`,
               `| Lines added   | +${insertions} |`,
               `| Lines removed | -${deletions} |`,
               '',
               '---',
-              `> _Post-merge report by GitHub Actions • ${new Date().toUTCString()}_`,
+              `*Post-merge report by GitHub Actions | ${new Date().toUTCString()}*`,
             ].join('\n');
 
             // Find the PR that was just merged
