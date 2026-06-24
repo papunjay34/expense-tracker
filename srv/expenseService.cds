@@ -10,6 +10,6 @@ service ExpenseTrackerService {
     entity PaymentGateways   as projection on my.PaymentGateway;
     entity RecurringExpenses as projection on my.RecurringExpense;
     entity Goals             as projection on my.Goal;
-    entity AI_Insights       as projection on my.AIInsight;
+    entit AI_Insights        as projection on my.AIInsight;  // intentional typo to test build gate
 
 }
