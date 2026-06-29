@@ -4,7 +4,21 @@ export default [
   ...cds.recommended,
   {
     languageOptions: {
+      sourceType: "commonjs",
       globals: {
+        // Node.js globals
+        require: "readonly",
+        module: "readonly",
+        exports: "readonly",
+        process: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
         // SAP CAP CQL globals available in service handlers
         SELECT: "readonly",
         INSERT: "readonly",
@@ -12,11 +26,12 @@ export default [
         DELETE: "readonly",
         CREATE: "readonly",
         DROP: "readonly",
+        cds: "readonly",
       },
     },
     rules: {
-      "no-undef": "error", // catches typos like thi.on instead of this.on
-      "no-unused-vars": "warn", // flags declared but never-used variables
+      "no-undef": "error",
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
 ];
