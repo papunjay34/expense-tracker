@@ -40,12 +40,13 @@ jobs:
 
       - name: Run ESLint
         id: lint-run
+        continue-on-error: true          # allow next steps to run even when errors found
         run: |
           ./node_modules/.bin/eslint . \
             --format json \
             --output-file eslint-results.json \
             --ignore-pattern "gen/**" \
-            --ignore-pattern "node_modules/**" || true
+            --ignore-pattern "node_modules/**"
 
       - name: Parse ESLint results into summary
         id: lint-report
@@ -98,6 +99,34 @@ jobs:
           name: eslint-results
           path: eslint-results.json
           retention-days: 7
+
+      - name: Fail job if ESLint errors found
+        if: always()
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          if (!fs.existsSync('eslint-results.json')) {
+            console.log('No ESLint results file — skipping error check.');
+            process.exit(0);
+          }
+          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+          const totalErrors = results.reduce((n, f) => n + f.errorCount, 0);
+          if (totalErrors > 0) {
+            console.error('');
+            console.error('ESLint found ' + totalErrors + ' error(s). All errors must be fixed before merging.');
+            console.error('');
+            results.forEach(f => {
+              if (f.errorCount === 0) return;
+              const rel = f.filePath.replace(process.cwd(), '').replace(/\\/g, '/').replace(/^\//, '');
+              f.messages.filter(m => m.severity === 2).forEach(m => {
+                console.error(`  ${rel}:${m.line}:${m.column}  [${m.ruleId}]  ${m.message}`);
+              });
+            });
+            console.error('');
+            process.exit(1);
+          }
+          console.log('ESLint: 0 errors. Good to go.');
+          EOF
 
   # ════════════════════════════════════════════════════════════════
   # JOB 2 — Build: Validate CDS build compiles cleanly
@@ -374,12 +403,14 @@ jobs:
           LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
           TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
+          LINT_REPORT: ${{ needs.lint.outputs.report }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const lintOutcome  = process.env.LINT_OUTCOME  || '';
             const buildOutcome = process.env.BUILD_OUTCOME || '';
             const testOutcome  = process.env.TEST_OUTCOME  || '';
+            const lintReport   = process.env.LINT_REPORT   || '';
 
             const allPassed =
               lintOutcome  === 'success' &&
@@ -470,26 +501,43 @@ jobs:
             // ── Required actions if checks failed ────────────────────────────
             if (!allPassed) {
               const actions = [];
-              if (lintOutcome  !== 'success') actions.push('**ESLint** — Run `npx eslint . --fix` locally.');
-              if (buildOutcome !== 'success') actions.push('**Build** — Run `npx cds build --production` locally.');
-              if (testOutcome  !== 'success' && testOutcome !== '') actions.push('**Tests** — Run `npm test` locally.');
+              if (lintOutcome  !== 'success') actions.push('**ESLint** — Run `npx eslint . --fix` locally to fix auto-fixable issues, then fix remaining errors manually.');
+              if (buildOutcome !== 'success') actions.push('**Build** — Run `npx cds build --production` locally to reproduce the error.');
+              if (testOutcome  !== 'success' && testOutcome !== '') actions.push('**Tests** — Run `npm test` locally to reproduce failures.');
+
               sections.push(
                 '', '---', '',
-                '### Required Actions',
+                '### Issues Found — Fix Required',
                 '',
                 actions.join('\n\n'),
+              );
+
+              // ── Include exact ESLint errors so the problem is visible in the review ──
+              if (lintOutcome !== 'success' && lintReport) {
+                sections.push(
+                  '',
+                  '**ESLint Errors Detected:**',
+                  '',
+                  lintReport,
+                  '',
+                  '> These errors must be resolved. Undefined variables (e.g. a typo like `thi` instead of `this`) will be caught by the `no-undef` rule and will block the merge.',
+                );
+              }
+
+              sections.push(
                 '',
-                'Push a fix to this branch. The pipeline will re-run automatically.'
+                'Push a fix to this branch. The pipeline will re-run automatically.',
               );
             }
 
             sections.push('', '---', `*Automated review by GitHub Actions | ${new Date().toUTCString()}*`);
 
+            // ── Submit review: REQUEST_CHANGES blocks auto-merge; COMMENT is advisory ──
             await github.rest.pulls.createReview({
               owner:       context.repo.owner,
               repo:        context.repo.repo,
               pull_number: context.issue.number,
-              event:       'COMMENT',
+              event:       allPassed ? 'COMMENT' : 'REQUEST_CHANGES',
               body:        sections.join('\n'),
             });
 
