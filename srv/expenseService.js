@@ -65,7 +65,7 @@ module.exports = cds.service.impl(async function () {
   // ── Function: getBudgetUtilisation ────────────────────────────────────────
   // Just adding comment pk
   // Returns how much of the budget has been spent (as a percentage 0–100)
-  thi.on("getBudgetUtilisation", async (req) => {
+  this.on("getBudgetUtilisation", async (req) => {
     const { userId, categoryId } = req.data;
 
     if (!userId) return req.error(400, "userId is required");
