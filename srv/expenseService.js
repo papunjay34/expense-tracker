@@ -63,7 +63,7 @@ module.exports = cds.service.impl(async function () {
   });
 
   // ── Function: getBudgetUtilisation ────────────────────────────────────────
-  // Just adding comment
+  // Just adding comment pk
   // Returns how much of the budget has been spent (as a percentage 0–100)
   this.on("getBudgetUtilisation", async (req) => {
     const { userId, categoryId } = req.data;
