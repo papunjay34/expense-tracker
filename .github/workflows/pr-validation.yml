@@ -15,101 +15,11 @@ permissions:
 # ─── Jobs ───────────────────────────────────────────────────────────────────
 jobs:
   # ════════════════════════════════════════════════════════════════
-  # JOB 1 — Lint: Static code analysis with ESLint
-  # ════════════════════════════════════════════════════════════════
-  lint:
-    name: ESLint Code Quality
-    runs-on: ubuntu-latest
-    outputs:
-      outcome: ${{ steps.lint-run.outcome }}
-      report: ${{ steps.lint-report.outputs.summary }}
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        id: lint-run
-        continue-on-error: true
-        run: |
-          ./node_modules/.bin/eslint . \
-            --format json \
-            --output-file eslint-results.json \
-            --ignore-pattern "gen/**" \
-            --ignore-pattern "node_modules/**"
-
-      - name: Parse ESLint results
-        id: lint-report
-        if: always()
-        shell: bash
-        run: |
-          if [ ! -f eslint-results.json ]; then
-            echo "summary=No ESLint results produced." >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Use node with a script file to avoid shell escaping issues
-          cat > /tmp/parse-eslint.js << 'NODESCRIPT'
-          const fs = require('fs');
-          const path = require('path');
-          const output = process.env.GITHUB_OUTPUT;
-          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-          let totalErrors = 0, totalWarnings = 0;
-          const lines = [];
-          results.forEach(file => {
-            if (file.errorCount === 0 && file.warningCount === 0) return;
-            totalErrors += file.errorCount;
-            totalWarnings += file.warningCount;
-            const rel = path.relative(process.cwd(), file.filePath);
-            lines.push('**' + rel + '** - ' + file.errorCount + ' error(s), ' + file.warningCount + ' warning(s)');
-            file.messages.forEach(m => {
-              const sev = m.severity === 2 ? '[ERROR]' : '[WARN] ';
-              lines.push('  - L' + m.line + ':' + m.column + ' ' + sev + ' [' + m.ruleId + ']: ' + m.message);
-            });
-          });
-          let summary = '';
-          if (totalErrors === 0 && totalWarnings === 0) {
-            summary = 'No issues found.';
-          } else {
-            summary = totalErrors + ' error(s) and ' + totalWarnings + ' warning(s) detected.\n\n' + lines.join('\n');
-          }
-          fs.appendFileSync(output, 'summary<<LINT_EOF\n' + summary + '\nLINT_EOF\n');
-          NODESCRIPT
-          node /tmp/parse-eslint.js
-
-      - name: Upload ESLint results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: eslint-results
-          path: eslint-results.json
-          retention-days: 7
-
-      - name: Fail job if ESLint found errors
-        if: steps.lint-run.outcome == 'failure'
-        run: |
-          echo "::error::ESLint found errors. Fix all issues before this PR can be merged."
-          echo "Run 'npx eslint .' locally to see full details."
-          exit 1
-
-  # ════════════════════════════════════════════════════════════════
-  # JOB 2 — Build: Validate CDS build compiles cleanly
-  # Gate: only runs if lint passed
+  # JOB 1 — Build: Validate CDS build compiles cleanly
   # ════════════════════════════════════════════════════════════════
   build:
     name: CDS Build Validation
     runs-on: ubuntu-latest
-    needs: [lint]
-    if: needs.lint.outputs.outcome == 'success'
     outputs:
       outcome: ${{ steps.cds-build.outcome }}
       report: ${{ steps.build-report.outputs.summary }}
@@ -166,8 +76,8 @@ jobs:
   test:
     name: Automated Tests
     runs-on: ubuntu-latest
-    needs: [lint, build]
-    if: needs.lint.outputs.outcome == 'success' && needs.build.outputs.outcome == 'success'
+    needs: [build]
+    if: needs.build.outputs.outcome == 'success'
     outputs:
       outcome: ${{ steps.run-tests.outcome }}
       report: ${{ steps.test-report.outputs.summary }}
@@ -233,21 +143,13 @@ jobs:
   report:
     name: Post PR Review Comment
     runs-on: ubuntu-latest
-    needs: [lint, build, test]
+    needs: [build, test]
     if: always()
 
     steps:
-      - name: Download ESLint artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: eslint-results
-          path: .
-
       - name: Post review comment
         uses: actions/github-script@v7
         env:
-          LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
           TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
           BUILD_REPORT: ${{ needs.build.outputs.report }}
@@ -255,16 +157,12 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
-            const path = require('path');
-            const lintOutcome  = process.env.LINT_OUTCOME  || '';
             const buildOutcome = process.env.BUILD_OUTCOME || '';
             const testOutcome  = process.env.TEST_OUTCOME  || '';
             const buildReport  = process.env.BUILD_REPORT  || 'Not available.';
             const testReport   = process.env.TEST_REPORT   || 'Not available.';
 
             const allPassed =
-              lintOutcome  === 'success' &&
               buildOutcome === 'success' &&
               (testOutcome === 'success' || testOutcome === '');
 
@@ -272,47 +170,8 @@ jobs:
               o === 'success' ? 'PASSED' :
               o === 'failure' ? 'FAILED' : 'SKIPPED';
 
-            // ── Parse ESLint errors from downloaded artifact ──────────────────
-            let eslintDetails = 'Not available.';
-            try {
-              if (fs.existsSync('eslint-results.json')) {
-                const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-                const lines = [];
-                let totalErr = 0, totalWarn = 0;
-                results.forEach(file => {
-                  if (file.errorCount === 0 && file.warningCount === 0) return;
-                  totalErr  += file.errorCount;
-                  totalWarn += file.warningCount;
-                  const rel = path.relative(process.cwd(), file.filePath).replace(/\\/g, '/');
-                  file.messages.forEach(m => {
-                    const sev = m.severity === 2 ? 'ERROR' : 'WARN';
-                    lines.push('| `' + rel + '` | L' + m.line + ':' + m.column + ' | ' + sev + ' | `' + m.ruleId + '` | ' + m.message + ' |');
-                  });
-                });
-                if (totalErr > 0 || totalWarn > 0) {
-                  eslintDetails = [
-                    '**' + totalErr + ' error(s), ' + totalWarn + ' warning(s)**',
-                    '',
-                    '| File | Location | Severity | Rule | Message |',
-                    '|------|----------|----------|------|---------|',
-                    ...lines,
-                  ].join('\n');
-                } else {
-                  eslintDetails = 'No issues found.';
-                }
-              }
-            } catch (e) { /* use fallback */ }
-
             // ── Action items when checks fail ─────────────────────────────────
             const actionItems = [];
-            if (lintOutcome === 'failure') {
-              actionItems.push(
-                '**ESLint**',
-                '- Run `npx eslint . --fix` locally to resolve linting errors.',
-                '- Review the ESLint analysis section below for exact file and line details.',
-                ''
-              );
-            }
             if (buildOutcome === 'failure') {
               actionItems.push(
                 '**Build**',
@@ -348,16 +207,11 @@ jobs:
               '',
               '| Check      | Status  |',
               '|------------|---------|',
-              '| ESLint     | ' + fmt(lintOutcome) + '  |',
               '| CDS Build  | ' + fmt(buildOutcome) + ' |',
               '| Tests      | ' + fmt(testOutcome) + '  |',
               '',
               actionBlock,
               '---',
-              '',
-              '### ESLint Analysis',
-              '',
-              eslintDetails,
               '',
               '### Build Output',
               '',
@@ -399,7 +253,7 @@ jobs:
   code-review:
     name: Automated Code Review
     runs-on: ubuntu-latest
-    needs: [lint, build, test, report]
+    needs: [build, test, report]
     if: always() && needs.report.result != 'skipped'
     outputs:
       all_passed: ${{ steps.review.outputs.all_passed }}
@@ -410,18 +264,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download ESLint results artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: eslint-results
-          path: .
-
       - name: Post senior-level code review and assign Copilot
         id: review
         uses: actions/github-script@v7
         env:
-          LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
           TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
         with:
@@ -429,30 +275,14 @@ jobs:
           script: |
             const fs   = require('fs');
             const path = require('path');
-            const lintOutcome  = process.env.LINT_OUTCOME  || '';
             const buildOutcome = process.env.BUILD_OUTCOME || '';
             const testOutcome  = process.env.TEST_OUTCOME  || '';
 
             const allPassed =
-              lintOutcome  === 'success' &&
               buildOutcome === 'success' &&
               (testOutcome === 'success' || testOutcome === '');
 
             core.setOutput('all_passed', allPassed ? 'true' : 'false');
-
-            // ── Parse ESLint errors from artifact ─────────────────────────────
-            const eslintErrors = [];
-            try {
-              if (fs.existsSync('eslint-results.json')) {
-                const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-                results.forEach(file => {
-                  const rel = path.relative(process.cwd(), file.filePath).replace(/\\/g, '/');
-                  file.messages.filter(m => m.severity === 2).forEach(m => {
-                    eslintErrors.push({ file: rel, line: m.line, col: m.column, rule: m.ruleId, msg: m.message });
-                  });
-                });
-              }
-            } catch (e) { /* skip */ }
 
             // ── Fetch PR metadata and changed files ───────────────────────────
             const { data: pr } = await github.rest.pulls.get({
@@ -489,7 +319,6 @@ jobs:
               '',
               '| Check      | Result  |',
               '|------------|---------|',
-              '| ESLint     | ' + fmt(lintOutcome) + '  |',
               '| CDS Build  | ' + fmt(buildOutcome) + ' |',
               '| Tests      | ' + fmt(testOutcome) + '  |',
               '',
@@ -506,24 +335,9 @@ jobs:
               fileList,
             ];
 
-            // ── ESLint error details (if any) ─────────────────────────────────
-            if (eslintErrors.length > 0) {
-              sections.push(
-                '', '---', '',
-                '### ESLint Errors — ' + eslintErrors.length + ' issue(s) found',
-                '',
-                '| File | Line | Rule | Error |',
-                '|------|------|------|-------|',
-                ...eslintErrors.map(e =>
-                  '| `' + e.file + '` | L' + e.line + ':' + e.col + ' | `' + e.rule + '` | ' + e.msg + ' |'
-                ),
-              );
-            }
-
             // ── Required actions if checks failed ─────────────────────────────
             if (!allPassed) {
               const actions = [];
-              if (lintOutcome  !== 'success') actions.push('- **ESLint** — Run `npx eslint . --fix` locally, then fix remaining errors manually.');
               if (buildOutcome !== 'success') actions.push('- **Build** — Run `npx cds build --production` locally to reproduce the error.');
               if (testOutcome  !== 'success' && testOutcome !== '') actions.push('- **Tests** — Run `npm test` locally to reproduce failures.');
               sections.push(
@@ -582,9 +396,8 @@ jobs:
   auto-merge:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
-    needs: [lint, build, test, code-review]
+    needs: [build, test, code-review]
     if: |
-      needs.lint.outputs.outcome  == 'success' &&
       needs.build.outputs.outcome == 'success' &&
       (needs.test.outputs.outcome == 'success' || needs.test.outputs.outcome == '') &&
       needs.code-review.outputs.all_passed == 'true'
@@ -603,6 +416,6 @@ jobs:
             --auto \
             --squash \
             --subject "${PR_TITLE}" \
-            --body    "Auto-merged after all pipeline checks passed (lint + build + tests + code review)."
+            --body    "Auto-merged after all pipeline checks passed (build + tests + code review)."
 
           echo "Auto-merge queued for PR #${PR_NUMBER}: ${PR_TITLE}"

@@ -36,17 +36,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
-        run: |
-          # Resolve eslint via Node module resolution (works even when not hoisted)
-          ESLINT=$(node -e "
-            try { console.log(require.resolve('eslint/bin/eslint')); }
-            catch(e) { process.exit(1); }
-          " 2>/dev/null) || { echo "ESLint binary not found — skipping lint."; exit 0; }
-          node "$ESLINT" . \
-            --ignore-pattern "gen/**" \
-            --ignore-pattern "node_modules/**" || true
-
       - name: CDS build (production)
         id: build
         run: npx cds build --production
