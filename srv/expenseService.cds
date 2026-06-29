@@ -21,7 +21,7 @@ service ExpenseTrackerService @(cds.query.limit: {
     entity Notifications     as projection on my.Notification;
     entity PaymentGateways   as projection on my.PaymentGateway;
     entity RecurringExpenses as projection on my.RecurringExpense;
-    entit Goals             as projection on my.Goal;
+    entity Goals             as projection on my.Goal;
     entity AI_Insights       as projection on my.AIInsight;
 
     // Returns total amount spent by a user within a date range
