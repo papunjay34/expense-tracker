@@ -505,16 +505,7 @@ jobs:
               core.warning('Could not assign Copilot reviewer: ' + e.message);
             }
 
-
-              event:       'COMMENT',
-              body:        sections.join('\n'),
-            });
-
-  # ════════════════════════════════════════════════════════════════
   # JOB 6 — Auto-Merge: Squash-merge when all checks pass
-  # Gated on check outcomes directly — no formal approval needed.
-  # Requires: Settings → General → Allow auto-merge ✅
-  # ════════════════════════════════════════════════════════════════
   auto-merge:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
