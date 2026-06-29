@@ -1,7 +1,6 @@
 name: PR Validation Pipeline
 
 # ─── Triggers ───────────────────────────────────────────────────────────────
-# Runs whenever a developer opens, updates, or reopens a PR targeting 'develop'
 on:
   pull_request:
     branches:
@@ -10,8 +9,8 @@ on:
 
 # ─── Permissions ────────────────────────────────────────────────────────────
 permissions:
-  contents: write # Needed to trigger auto-merge
-  pull-requests: write # Needed to post comments
+  contents: write
+  pull-requests: write
 
 # ─── Jobs ───────────────────────────────────────────────────────────────────
 jobs:
@@ -22,7 +21,7 @@ jobs:
     name: ESLint Code Quality
     runs-on: ubuntu-latest
     outputs:
-      outcome: ${{ steps.lint-run.outcome }}
+      outcome: ${{ steps.gate.outputs.result }}
       report: ${{ steps.lint-report.outputs.summary }}
 
     steps:
@@ -40,57 +39,52 @@ jobs:
 
       - name: Run ESLint
         id: lint-run
-        continue-on-error: true # allow next steps to run even when errors found
         run: |
           ./node_modules/.bin/eslint . \
             --format json \
             --output-file eslint-results.json \
             --ignore-pattern "gen/**" \
-            --ignore-pattern "node_modules/**"
+            --ignore-pattern "node_modules/**" || true
 
-      - name: Parse ESLint results into summary
+      - name: Parse ESLint results
         id: lint-report
+        if: always()
         run: |
-          node - <<'EOF'
-          const fs   = require('fs');
-          const path = require('path');
+          node -e "
+            const fs   = require('fs');
+            const path = require('path');
+            const output = process.env.GITHUB_OUTPUT;
 
-          if (!fs.existsSync('eslint-results.json')) {
-            console.log('::set-output name=summary::No ESLint results found.');
-            process.exit(0);
-          }
+            if (!fs.existsSync('eslint-results.json')) {
+              fs.appendFileSync(output, 'summary<<LINT_EOF\nNo ESLint results produced.\nLINT_EOF\n');
+              process.exit(0);
+            }
 
-          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-          let totalErrors   = 0;
-          let totalWarnings = 0;
-          const lines = [];
+            const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+            let totalErrors   = 0;
+            let totalWarnings = 0;
+            const lines       = [];
 
-          results.forEach(file => {
-            if (file.errorCount === 0 && file.warningCount === 0) return;
-            totalErrors   += file.errorCount;
-            totalWarnings += file.warningCount;
-
-            const rel = path.relative(process.cwd(), file.filePath);
-            lines.push(`**${rel}** — ${file.errorCount} error(s), ${file.warningCount} warning(s)`);
-
-            file.messages.forEach(m => {
-              const sev = m.severity === 2 ? '[ERROR]' : '[WARN] ';
-              lines.push(`  - \`L${m.line}:${m.column}\` ${sev} [${m.ruleId}]: ${m.message}`);
+            results.forEach(file => {
+              if (file.errorCount === 0 && file.warningCount === 0) return;
+              totalErrors   += file.errorCount;
+              totalWarnings += file.warningCount;
+              const rel = path.relative(process.cwd(), file.filePath);
+              lines.push('**' + rel + '** — ' + file.errorCount + ' error(s), ' + file.warningCount + ' warning(s)');
+              file.messages.forEach(m => {
+                const sev = m.severity === 2 ? '[ERROR]' : '[WARN] ';
+                lines.push('  - L' + m.line + ':' + m.column + ' ' + sev + ' [' + m.ruleId + ']: ' + m.message);
+              });
             });
-          });
 
-          let summary = '';
-          if (totalErrors === 0 && totalWarnings === 0) {
-            summary = 'No issues found.';
-          } else {
-            summary  = `${totalErrors} error(s) and ${totalWarnings} warning(s) detected.\n\n`;
-            summary += lines.join('\n');
-          }
-
-          // GitHub Actions multiline output
-          const output = process.env.GITHUB_OUTPUT;
-          fs.appendFileSync(output, `summary<<LINT_EOF\n${summary}\nLINT_EOF\n`);
-          EOF
+            let summary = '';
+            if (totalErrors === 0 && totalWarnings === 0) {
+              summary = 'No issues found.';
+            } else {
+              summary = totalErrors + ' error(s) and ' + totalWarnings + ' warning(s) detected.\n\n' + lines.join('\n');
+            }
+            fs.appendFileSync(output, 'summary<<LINT_EOF\n' + summary + '\nLINT_EOF\n');
+          "
 
       - name: Upload ESLint results
         if: always()
@@ -100,12 +94,31 @@ jobs:
           path: eslint-results.json
           retention-days: 7
 
-      - name: Fail job if ESLint errors found
-        if: steps.lint-run.outcome == 'failure'
+      - name: Gate — pass or fail based on error count
+        id: gate
+        if: always()
         run: |
-          echo "::error::ESLint found errors that must be fixed before this PR can be merged."
-          echo "Check the 'Run ESLint' step output and the eslint-results.json artifact for file and line details."
-          exit 1
+          node -e "
+            const fs = require('fs');
+            if (!fs.existsSync('eslint-results.json')) { console.log('No results file.'); process.exit(0); }
+            const r = JSON.parse(fs.readFileSync('eslint-results.json','utf8'));
+            const e = r.reduce((n,f) => n + f.errorCount, 0);
+            const output = process.env.GITHUB_OUTPUT;
+            if (e > 0) {
+              fs.appendFileSync(output, 'result=failure\n');
+              r.forEach(f => {
+                const rel = f.filePath.replace(process.cwd(), '').replace(/\\\\/g,'/').replace(/^\\//, '');
+                f.messages.filter(m => m.severity === 2).forEach(m => {
+                  console.error('::error file=' + rel + ',line=' + m.line + ',col=' + m.column + '::' + m.ruleId + ': ' + m.message);
+                });
+              });
+              console.error('');
+              console.error('ESLint: ' + e + ' error(s) found. Fix all errors before this PR can be merged.');
+              process.exit(1);
+            }
+            fs.appendFileSync(output, 'result=success\n');
+            console.log('ESLint: 0 errors.');
+          "
 
   # ════════════════════════════════════════════════════════════════
   # JOB 2 — Build: Validate CDS build compiles cleanly
@@ -136,7 +149,7 @@ jobs:
       - name: Run CDS build (production mode)
         id: cds-build
         run: |
-          set -o pipefail  # ensures pipe exit code = cds build exit code, not tee
+          set -o pipefail
           npx cds build --production 2>&1 | tee build-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
 
@@ -194,7 +207,6 @@ jobs:
       - name: Run tests
         id: run-tests
         run: |
-          # Check if a test script is defined in package.json (exit 1 when undefined)
           if node -e "const s=require('./package.json').scripts; if(!s||!s.test){process.exit(1)}" 2>/dev/null; then
             npm test 2>&1 | tee test-output.txt
             echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
@@ -212,13 +224,12 @@ jobs:
         run: |
           RAN="${{ steps.run-tests.outputs.ran }}"
           EXIT="${{ steps.run-tests.outputs.exit_code }}"
-
           if [ "$RAN" = "false" ]; then
             SUMMARY="No test script defined in package.json. Add a \"test\" script to enable automated testing."
           elif [ "$EXIT" = "0" ]; then
             SUMMARY="All tests passed."
           else
-            FAILURES=$(grep -E "FAIL|Error|\u2717|\u00d7" test-output.txt | head -20 || true)
+            FAILURES=$(grep -E "FAIL|Error" test-output.txt | head -20 || true)
             SUMMARY="Tests failed.\n\n\`\`\`\n${FAILURES}\n\`\`\`"
           fi
           {
@@ -236,9 +247,7 @@ jobs:
           retention-days: 7
 
   # ════════════════════════════════════════════════════════════════
-  # JOB 4 — Report: Post a combined summary comment on the PR
-  # FIX: outputs are passed via env vars (not template literals)
-  #      so backticks/quotes in report text never break JS syntax.
+  # JOB 4 — Report: Post a combined CI summary comment on the PR
   # ════════════════════════════════════════════════════════════════
   report:
     name: Post PR Review Comment
@@ -247,22 +256,29 @@ jobs:
     if: always()
 
     steps:
+      - name: Download ESLint artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: eslint-results
+          path: .
+
       - name: Post review comment
         uses: actions/github-script@v7
         env:
           LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
           TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
-          LINT_REPORT: ${{ needs.lint.outputs.report }}
           BUILD_REPORT: ${{ needs.build.outputs.report }}
           TEST_REPORT: ${{ needs.test.outputs.report }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('fs');
+            const path = require('path');
             const lintOutcome  = process.env.LINT_OUTCOME  || '';
             const buildOutcome = process.env.BUILD_OUTCOME || '';
             const testOutcome  = process.env.TEST_OUTCOME  || '';
-            const lintReport   = process.env.LINT_REPORT   || 'Not available.';
             const buildReport  = process.env.BUILD_REPORT  || 'Not available.';
             const testReport   = process.env.TEST_REPORT   || 'Not available.';
 
@@ -272,15 +288,47 @@ jobs:
               (testOutcome === 'success' || testOutcome === '');
 
             const fmt = o =>
-              o === 'success' ? 'PASSED'  :
-              o === 'failure' ? 'FAILED'  : 'SKIPPED';
+              o === 'success' ? 'PASSED' :
+              o === 'failure' ? 'FAILED' : 'SKIPPED';
 
+            // ── Parse ESLint errors from downloaded artifact ──────────────────
+            let eslintDetails = 'Not available.';
+            try {
+              if (fs.existsSync('eslint-results.json')) {
+                const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+                const lines = [];
+                let totalErr = 0, totalWarn = 0;
+                results.forEach(file => {
+                  if (file.errorCount === 0 && file.warningCount === 0) return;
+                  totalErr  += file.errorCount;
+                  totalWarn += file.warningCount;
+                  const rel = path.relative(process.cwd(), file.filePath).replace(/\\/g, '/');
+                  file.messages.forEach(m => {
+                    const sev = m.severity === 2 ? 'ERROR' : 'WARN';
+                    lines.push('| `' + rel + '` | L' + m.line + ':' + m.column + ' | ' + sev + ' | `' + m.ruleId + '` | ' + m.message + ' |');
+                  });
+                });
+                if (totalErr > 0 || totalWarn > 0) {
+                  eslintDetails = [
+                    '**' + totalErr + ' error(s), ' + totalWarn + ' warning(s)**',
+                    '',
+                    '| File | Location | Severity | Rule | Message |',
+                    '|------|----------|----------|------|---------|',
+                    ...lines,
+                  ].join('\n');
+                } else {
+                  eslintDetails = 'No issues found.';
+                }
+              }
+            } catch (e) { /* use fallback */ }
+
+            // ── Action items when checks fail ─────────────────────────────────
             const actionItems = [];
             if (lintOutcome === 'failure') {
               actionItems.push(
                 '**ESLint**',
                 '- Run `npx eslint . --fix` locally to resolve linting errors.',
-                '- Review the ESLint analysis section below for file and line details.',
+                '- Review the ESLint analysis section below for exact file and line details.',
                 ''
               );
             }
@@ -309,9 +357,9 @@ jobs:
             const body = [
               '## CI Pipeline Report',
               '',
-              `**Status:** ${allPassed ? 'PASSED' : 'FAILED'}`,
-              `**Branch:** \`${context.payload.pull_request.head.ref}\` -> \`main\``,
-              `**Triggered by:** ${context.actor}`,
+              '**Status:** ' + (allPassed ? 'PASSED' : 'FAILED'),
+              '**Branch:** `' + context.payload.pull_request.head.ref + '` -> `main`',
+              '**Triggered by:** ' + context.actor,
               '',
               '---',
               '',
@@ -319,16 +367,16 @@ jobs:
               '',
               '| Check      | Status  |',
               '|------------|---------|',
-              `| ESLint     | ${fmt(lintOutcome)}  |`,
-              `| CDS Build  | ${fmt(buildOutcome)} |`,
-              `| Tests      | ${fmt(testOutcome)}  |`,
+              '| ESLint     | ' + fmt(lintOutcome) + '  |',
+              '| CDS Build  | ' + fmt(buildOutcome) + ' |',
+              '| Tests      | ' + fmt(testOutcome) + '  |',
               '',
               actionBlock,
               '---',
               '',
               '### ESLint Analysis',
               '',
-              lintReport,
+              eslintDetails,
               '',
               '### Build Output',
               '',
@@ -339,33 +387,34 @@ jobs:
               testReport,
               '',
               '---',
-              `*Generated by GitHub Actions | ${new Date().toUTCString()}*`,
+              '*Generated by GitHub Actions | ' + new Date().toUTCString() + '*',
             ].join('\n');
 
+            // ── Replace previous bot comment ──────────────────────────────────
             const { data: comments } = await github.rest.issues.listComments({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
             });
             const prev = comments.find(c =>
               c.user.login === 'github-actions[bot]' &&
-              c.body.includes('Generated by GitHub Actions')
+              c.body.includes('CI Pipeline Report')
             );
             if (prev) {
               await github.rest.issues.deleteComment({
-                owner:      context.repo.owner,
-                repo:       context.repo.repo,
+                owner: context.repo.owner, repo: context.repo.repo,
                 comment_id: prev.id,
               });
             }
             await github.rest.issues.createComment({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              issue_number: context.issue.number,
-              body,
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body,
             });
 
-  # JOB 5 — Code review: pipeline verdict + PR overview + Copilot handoff
+  # ════════════════════════════════════════════════════════════════
+  # JOB 5 — Code Review: Senior developer-level review + Copilot
+  # Runs always — posts verdict, detailed findings, and assigns
+  # GitHub Copilot as reviewer for deep semantic analysis.
+  # ════════════════════════════════════════════════════════════════
   code-review:
     name: Automated Code Review
     runs-on: ubuntu-latest
@@ -375,21 +424,33 @@ jobs:
       all_passed: ${{ steps.review.outputs.all_passed }}
 
     steps:
-      - name: Post review verdict and request Copilot analysis
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download ESLint results artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: eslint-results
+          path: .
+
+      - name: Post senior-level code review and assign Copilot
         id: review
         uses: actions/github-script@v7
         env:
           LINT_OUTCOME: ${{ needs.lint.outputs.outcome }}
           BUILD_OUTCOME: ${{ needs.build.outputs.outcome }}
           TEST_OUTCOME: ${{ needs.test.outputs.outcome }}
-          LINT_REPORT: ${{ needs.lint.outputs.report }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs   = require('fs');
+            const path = require('path');
             const lintOutcome  = process.env.LINT_OUTCOME  || '';
             const buildOutcome = process.env.BUILD_OUTCOME || '';
             const testOutcome  = process.env.TEST_OUTCOME  || '';
-            const lintReport   = process.env.LINT_REPORT   || '';
 
             const allPassed =
               lintOutcome  === 'success' &&
@@ -398,141 +459,145 @@ jobs:
 
             core.setOutput('all_passed', allPassed ? 'true' : 'false');
 
+            // ── Parse ESLint errors from artifact ─────────────────────────────
+            const eslintErrors = [];
+            try {
+              if (fs.existsSync('eslint-results.json')) {
+                const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+                results.forEach(file => {
+                  const rel = path.relative(process.cwd(), file.filePath).replace(/\\/g, '/');
+                  file.messages.filter(m => m.severity === 2).forEach(m => {
+                    eslintErrors.push({ file: rel, line: m.line, col: m.column, rule: m.ruleId, msg: m.message });
+                  });
+                });
+              }
+            } catch (e) { /* skip */ }
+
             // ── Fetch PR metadata and changed files ───────────────────────────
             const { data: pr } = await github.rest.pulls.get({
-              owner:       context.repo.owner,
-              repo:        context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               pull_number: context.issue.number,
             });
 
             const { data: files } = await github.rest.pulls.listFiles({
-              owner:       context.repo.owner,
-              repo:        context.repo.repo,
-              pull_number: context.issue.number,
-              per_page:    100,
+              owner: context.repo.owner, repo: context.repo.repo,
+              pull_number: context.issue.number, per_page: 100,
             });
 
-            // ── PR Overview ───────────────────────────────────────────────────
             const totalAdditions = files.reduce((s, f) => s + f.additions, 0);
             const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
             const fileList = files.map(f => {
-              const tag =
-                f.status === 'added'   ? 'ADDED'    :
-                f.status === 'removed' ? 'REMOVED'  : 'MODIFIED';
-              return `| \`${f.filename}\` | ${tag} | +${f.additions} / -${f.deletions} |`;
+              const tag = f.status === 'added' ? 'ADDED' : f.status === 'removed' ? 'REMOVED' : 'MODIFIED';
+              return '| `' + f.filename + '` | ' + tag + ' | +' + f.additions + ' / -' + f.deletions + ' |';
             }).join('\n');
 
-            // ── Pipeline result table ─────────────────────────────────────────
-            const fmt = o =>
-              o === 'success' ? 'PASSED'  :
-              o === 'failure' ? 'FAILED'  : 'SKIPPED';
-
-            const checkTable = [
-              '| Check      | Result  |',
-              '|------------|---------|',
-              `| ESLint     | ${fmt(lintOutcome)}  |`,
-              `| CDS Build  | ${fmt(buildOutcome)} |`,
-              `| Tests      | ${fmt(testOutcome)}  |`,
-            ].join('\n');
-
-            // ── Build review comment ──────────────────────────────────────────
+            // ── Pipeline result formatting ────────────────────────────────────
+            const fmt = o => o === 'success' ? 'PASSED' : o === 'failure' ? 'FAILED' : 'SKIPPED';
             const verdict = allPassed ? 'APPROVED' : 'CHANGES REQUIRED';
 
+            // ── Build review body ─────────────────────────────────────────────
             const sections = [
               '## Automated Code Review',
               '',
-              `**Verdict:** ${verdict}`,
+              '**Verdict:** ' + verdict,
               '',
               '---',
               '',
               '### Pipeline Results',
               '',
-              checkTable,
+              '| Check      | Result  |',
+              '|------------|---------|',
+              '| ESLint     | ' + fmt(lintOutcome) + '  |',
+              '| CDS Build  | ' + fmt(buildOutcome) + ' |',
+              '| Tests      | ' + fmt(testOutcome) + '  |',
               '',
               '---',
               '',
               '### PR Overview',
               '',
-              `**Title:** ${pr.title}`,
-              `**Author:** ${pr.user.login}`,
-              `**Files changed:** ${files.length} | **Lines added:** +${totalAdditions} | **Lines removed:** -${totalDeletions}`,
+              '**Title:** ' + pr.title,
+              '**Author:** ' + pr.user.login,
+              '**Files changed:** ' + files.length + ' | **Lines added:** +' + totalAdditions + ' | **Lines removed:** -' + totalDeletions,
               '',
               '| File | Status | Changes |',
               '|------|--------|---------|',
               fileList,
-              '',
-              '---',
-              '',
-              '### Code Review — GitHub Copilot',
-              '',
-              'GitHub Copilot has been assigned as a reviewer on this pull request.',
-              'Copilot will analyse the diff for:',
-              '',
-              '- Code quality and best practices',
-              '- Error handling and input validation',
-              '- Performance and scalability concerns',
-              '- Security vulnerabilities',
-              '',
-              'See the **Copilot review** in the Reviewers section of this PR for inline comments and findings.',
             ];
 
-            // ── Required actions if checks failed ────────────────────────────
-            if (!allPassed) {
-              const actions = [];
-              if (lintOutcome  !== 'success') actions.push('**ESLint** — Run `npx eslint . --fix` locally to fix auto-fixable issues, then fix remaining errors manually.');
-              if (buildOutcome !== 'success') actions.push('**Build** — Run `npx cds build --production` locally to reproduce the error.');
-              if (testOutcome  !== 'success' && testOutcome !== '') actions.push('**Tests** — Run `npm test` locally to reproduce failures.');
-
+            // ── ESLint error details (if any) ─────────────────────────────────
+            if (eslintErrors.length > 0) {
               sections.push(
                 '', '---', '',
-                '### Issues Found — Fix Required',
+                '### ESLint Errors — ' + eslintErrors.length + ' issue(s) found',
                 '',
-                actions.join('\n\n'),
+                '| File | Line | Rule | Error |',
+                '|------|------|------|-------|',
+                ...eslintErrors.map(e =>
+                  '| `' + e.file + '` | L' + e.line + ':' + e.col + ' | `' + e.rule + '` | ' + e.msg + ' |'
+                ),
               );
+            }
 
-              // ── Include exact ESLint errors so the problem is visible in the review ──
-              if (lintOutcome !== 'success' && lintReport) {
-                sections.push(
-                  '',
-                  '**ESLint Errors Detected:**',
-                  '',
-                  lintReport,
-                  '',
-                  '> These errors must be resolved. Undefined variables (e.g. a typo like `thi` instead of `this`) will be caught by the `no-undef` rule and will block the merge.',
-                );
-              }
-
+            // ── Required actions if checks failed ─────────────────────────────
+            if (!allPassed) {
+              const actions = [];
+              if (lintOutcome  !== 'success') actions.push('- **ESLint** — Run `npx eslint . --fix` locally, then fix remaining errors manually.');
+              if (buildOutcome !== 'success') actions.push('- **Build** — Run `npx cds build --production` locally to reproduce the error.');
+              if (testOutcome  !== 'success' && testOutcome !== '') actions.push('- **Tests** — Run `npm test` locally to reproduce failures.');
               sections.push(
+                '', '---', '',
+                '### Actions Required',
+                '',
+                ...actions,
                 '',
                 'Push a fix to this branch. The pipeline will re-run automatically.',
               );
             }
 
-            sections.push('', '---', `*Automated review by GitHub Actions | ${new Date().toUTCString()}*`);
+            // ── Copilot review section ────────────────────────────────────────
+            sections.push(
+              '', '---', '',
+              '### Code Review — GitHub Copilot',
+              '',
+              'GitHub Copilot has been assigned as a reviewer on this pull request.',
+              'Copilot performs a senior developer-level review covering:',
+              '',
+              '- **Code correctness** — undefined variables, typos, logic errors',
+              '- **Error handling** — missing try/catch, unhandled edge cases',
+              '- **Performance** — N+1 queries, unnecessary loops, memory leaks',
+              '- **Security** — input validation, injection risks, auth gaps',
+              '- **Best practices** — naming conventions, code structure, readability',
+              '',
+              'Check the **Copilot review** in the Reviewers section of this PR for inline comments.',
+              '',
+              '---',
+              '*Automated review by GitHub Actions | ' + new Date().toUTCString() + '*',
+            );
 
-            // ── Submit review: REQUEST_CHANGES blocks auto-merge; COMMENT is advisory ──
+            // ── Submit review ─────────────────────────────────────────────────
+            // REQUEST_CHANGES blocks merge when issues found; COMMENT is advisory
             await github.rest.pulls.createReview({
-              owner:       context.repo.owner,
-              repo:        context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               pull_number: context.issue.number,
-              event:       allPassed ? 'COMMENT' : 'REQUEST_CHANGES',
-              body:        sections.join('\n'),
+              event: allPassed ? 'COMMENT' : 'REQUEST_CHANGES',
+              body:  sections.join('\n'),
             });
 
-            // ── Request Copilot as reviewer (if not already assigned) ─────────
+            // ── Request Copilot as reviewer ───────────────────────────────────
             try {
               await github.rest.pulls.requestReviewers({
-                owner:       context.repo.owner,
-                repo:        context.repo.repo,
+                owner: context.repo.owner, repo: context.repo.repo,
                 pull_number: context.issue.number,
-                reviewers:   ['Copilot'],
+                reviewers: ['Copilot'],
               });
             } catch (e) {
               core.warning('Could not assign Copilot reviewer: ' + e.message);
             }
 
-  # JOB 6 — Auto-Merge: Squash-merge when all checks pass
+  # ════════════════════════════════════════════════════════════════
+  # JOB 6 — Auto-Merge: Squash-merge only when ALL checks pass
+  # ════════════════════════════════════════════════════════════════
   auto-merge:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
@@ -557,6 +622,6 @@ jobs:
             --auto \
             --squash \
             --subject "${PR_TITLE}" \
-            --body    "Auto-merged after all pipeline checks passed (lint + build + tests)."
+            --body    "Auto-merged after all pipeline checks passed (lint + build + tests + code review)."
 
           echo "Auto-merge queued for PR #${PR_NUMBER}: ${PR_TITLE}"
