@@ -6,13 +6,14 @@ module.exports = cds.service.impl(async function () {
   const { Expense, Budget } = this.entities;
 
   // ── Input Validation: Users ───────────────────────────────────────────────
+  // Validates user data before creating or updating a user record
   this.before(["CREATE", "UPDATE"], "Users", (req) => {
     const { name, email } = req.data;
     if (name !== undefined && !name?.trim())
       return req.error(400, "Name must not be empty");
     if (email !== undefined) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-        return req.error(400, "A valid email address is required");
+        return req.error(400, "A valid email address is required (e.g. user@example.com)");
     }
   });
 
