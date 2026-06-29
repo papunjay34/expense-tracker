@@ -40,7 +40,7 @@ jobs:
 
       - name: Run ESLint
         id: lint-run
-        continue-on-error: true          # allow next steps to run even when errors found
+        continue-on-error: true # allow next steps to run even when errors found
         run: |
           ./node_modules/.bin/eslint . \
             --format json \
@@ -101,32 +101,11 @@ jobs:
           retention-days: 7
 
       - name: Fail job if ESLint errors found
-        if: always()
+        if: steps.lint-run.outcome == 'failure'
         run: |
-          node - <<'EOF'
-          const fs = require('fs');
-          if (!fs.existsSync('eslint-results.json')) {
-            console.log('No ESLint results file — skipping error check.');
-            process.exit(0);
-          }
-          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-          const totalErrors = results.reduce((n, f) => n + f.errorCount, 0);
-          if (totalErrors > 0) {
-            console.error('');
-            console.error('ESLint found ' + totalErrors + ' error(s). All errors must be fixed before merging.');
-            console.error('');
-            results.forEach(f => {
-              if (f.errorCount === 0) return;
-              const rel = f.filePath.replace(process.cwd(), '').replace(/\\/g, '/').replace(/^\//, '');
-              f.messages.filter(m => m.severity === 2).forEach(m => {
-                console.error(`  ${rel}:${m.line}:${m.column}  [${m.ruleId}]  ${m.message}`);
-              });
-            });
-            console.error('');
-            process.exit(1);
-          }
-          console.log('ESLint: 0 errors. Good to go.');
-          EOF
+          echo "::error::ESLint found errors that must be fixed before this PR can be merged."
+          echo "Check the 'Run ESLint' step output and the eslint-results.json artifact for file and line details."
+          exit 1
 
   # ════════════════════════════════════════════════════════════════
   # JOB 2 — Build: Validate CDS build compiles cleanly
