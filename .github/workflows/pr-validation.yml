@@ -21,7 +21,7 @@ jobs:
     name: ESLint Code Quality
     runs-on: ubuntu-latest
     outputs:
-      outcome: ${{ steps.gate.outputs.result }}
+      outcome: ${{ steps.lint-run.outcome }}
       report: ${{ steps.lint-report.outputs.summary }}
 
     steps:
@@ -39,52 +39,52 @@ jobs:
 
       - name: Run ESLint
         id: lint-run
+        continue-on-error: true
         run: |
           ./node_modules/.bin/eslint . \
             --format json \
             --output-file eslint-results.json \
             --ignore-pattern "gen/**" \
-            --ignore-pattern "node_modules/**" || true
+            --ignore-pattern "node_modules/**"
 
       - name: Parse ESLint results
         id: lint-report
         if: always()
+        shell: bash
         run: |
-          node -e "
-            const fs   = require('fs');
-            const path = require('path');
-            const output = process.env.GITHUB_OUTPUT;
+          if [ ! -f eslint-results.json ]; then
+            echo "summary=No ESLint results produced." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-            if (!fs.existsSync('eslint-results.json')) {
-              fs.appendFileSync(output, 'summary<<LINT_EOF\nNo ESLint results produced.\nLINT_EOF\n');
-              process.exit(0);
-            }
-
-            const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
-            let totalErrors   = 0;
-            let totalWarnings = 0;
-            const lines       = [];
-
-            results.forEach(file => {
-              if (file.errorCount === 0 && file.warningCount === 0) return;
-              totalErrors   += file.errorCount;
-              totalWarnings += file.warningCount;
-              const rel = path.relative(process.cwd(), file.filePath);
-              lines.push('**' + rel + '** — ' + file.errorCount + ' error(s), ' + file.warningCount + ' warning(s)');
-              file.messages.forEach(m => {
-                const sev = m.severity === 2 ? '[ERROR]' : '[WARN] ';
-                lines.push('  - L' + m.line + ':' + m.column + ' ' + sev + ' [' + m.ruleId + ']: ' + m.message);
-              });
+          # Use node with a script file to avoid shell escaping issues
+          cat > /tmp/parse-eslint.js << 'NODESCRIPT'
+          const fs = require('fs');
+          const path = require('path');
+          const output = process.env.GITHUB_OUTPUT;
+          const results = JSON.parse(fs.readFileSync('eslint-results.json', 'utf8'));
+          let totalErrors = 0, totalWarnings = 0;
+          const lines = [];
+          results.forEach(file => {
+            if (file.errorCount === 0 && file.warningCount === 0) return;
+            totalErrors += file.errorCount;
+            totalWarnings += file.warningCount;
+            const rel = path.relative(process.cwd(), file.filePath);
+            lines.push('**' + rel + '** - ' + file.errorCount + ' error(s), ' + file.warningCount + ' warning(s)');
+            file.messages.forEach(m => {
+              const sev = m.severity === 2 ? '[ERROR]' : '[WARN] ';
+              lines.push('  - L' + m.line + ':' + m.column + ' ' + sev + ' [' + m.ruleId + ']: ' + m.message);
             });
-
-            let summary = '';
-            if (totalErrors === 0 && totalWarnings === 0) {
-              summary = 'No issues found.';
-            } else {
-              summary = totalErrors + ' error(s) and ' + totalWarnings + ' warning(s) detected.\n\n' + lines.join('\n');
-            }
-            fs.appendFileSync(output, 'summary<<LINT_EOF\n' + summary + '\nLINT_EOF\n');
-          "
+          });
+          let summary = '';
+          if (totalErrors === 0 && totalWarnings === 0) {
+            summary = 'No issues found.';
+          } else {
+            summary = totalErrors + ' error(s) and ' + totalWarnings + ' warning(s) detected.\n\n' + lines.join('\n');
+          }
+          fs.appendFileSync(output, 'summary<<LINT_EOF\n' + summary + '\nLINT_EOF\n');
+          NODESCRIPT
+          node /tmp/parse-eslint.js
 
       - name: Upload ESLint results
         if: always()
@@ -94,31 +94,12 @@ jobs:
           path: eslint-results.json
           retention-days: 7
 
-      - name: Gate — pass or fail based on error count
-        id: gate
-        if: always()
+      - name: Fail job if ESLint found errors
+        if: steps.lint-run.outcome == 'failure'
         run: |
-          node -e "
-            const fs = require('fs');
-            if (!fs.existsSync('eslint-results.json')) { console.log('No results file.'); process.exit(0); }
-            const r = JSON.parse(fs.readFileSync('eslint-results.json','utf8'));
-            const e = r.reduce((n,f) => n + f.errorCount, 0);
-            const output = process.env.GITHUB_OUTPUT;
-            if (e > 0) {
-              fs.appendFileSync(output, 'result=failure\n');
-              r.forEach(f => {
-                const rel = f.filePath.replace(process.cwd(), '').replace(/\\\\/g,'/').replace(/^\\//, '');
-                f.messages.filter(m => m.severity === 2).forEach(m => {
-                  console.error('::error file=' + rel + ',line=' + m.line + ',col=' + m.column + '::' + m.ruleId + ': ' + m.message);
-                });
-              });
-              console.error('');
-              console.error('ESLint: ' + e + ' error(s) found. Fix all errors before this PR can be merged.');
-              process.exit(1);
-            }
-            fs.appendFileSync(output, 'result=success\n');
-            console.log('ESLint: 0 errors.');
-          "
+          echo "::error::ESLint found errors. Fix all issues before this PR can be merged."
+          echo "Run 'npx eslint .' locally to see full details."
+          exit 1
 
   # ════════════════════════════════════════════════════════════════
   # JOB 2 — Build: Validate CDS build compiles cleanly
