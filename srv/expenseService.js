@@ -4,7 +4,6 @@ const cds = require("@sap/cds");
 
 module.exports = cds.service.impl(async function () {
   const { Expense, Budget } = this.entities;
-
   // ── Input Validation: Users ───────────────────────────────────────────────
   this.before(["CREATE", "UPDATE"], "Users", (req) => {
     const { name, email } = req.data;
