@@ -21,8 +21,8 @@ service ExpenseTrackerService @(cds.query.limit: {
     entity Notifications     as projection on my.Notification;
     entity PaymentGateways   as projection on my.PaymentGateway;
     entity RecurringExpenses as projection on my.RecurringExpense;
-    entity Goals             as projection on my.Goal;
-    entit AI_Insights       as projection on my.AIInsight;
+    entit Goals             as projection on my.Goal;
+    entity AI_Insights       as projection on my.AIInsight;
 
     // Returns total amount spent by a user within a date range
     function getTotalExpenses(userId: UUID, fromDate: Date, toDate: Date) returns Decimal(10, 2);
